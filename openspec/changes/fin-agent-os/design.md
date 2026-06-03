@@ -283,8 +283,7 @@ message_start  → token* → (tool_call → tool_result)* → token* → messag
 
 **选择: 全部通过 `UPSTREAM_PLUGINS_PATH` env var 读取，禁止硬编码**
 
-- 当前开发机：`UPSTREAM_PLUGINS_PATH=/root/financial_agent/plugins`
-- 队友机：`UPSTREAM_PLUGINS_PATH=/home/music_admin/fin_agent/plugins`
+- 本地开发：将 `UPSTREAM_PLUGINS_PATH` 指向本机克隆的上游 `anthropics/financial-services` 仓库下的 `plugins/` 目录
 - CI/容器：mount 后通过 env 注入
 
 Importer 脚本 (`backend/app/importers/`) 只读上游，禁止 write。这允许 dev 在不同机器、不同 clone 路径都能跑。

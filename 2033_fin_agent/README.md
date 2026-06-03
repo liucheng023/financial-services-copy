@@ -7,8 +7,8 @@ B2B web platform for financial expert agents. Asia-primary. Phase 1 MVP.
 - **Project rules**: [AGENTS.md](./AGENTS.md)
 - **Backend rules**: [backend/AGENTS.md](./backend/AGENTS.md)
 - **Frontend rules**: [frontend/AGENTS.md](./frontend/AGENTS.md)
-- **Spec & tasks**: `/root/financial_agent/openspec/changes/fin-agent-os/`
-- **Upstream content**: agents/skills/MCPs live in the upstream `anthropics/financial-services` repo. Path is configured via the `UPSTREAM_PLUGINS_PATH` env var (commonly `/root/financial_agent/plugins` on this dev machine).
+- **Spec & tasks**: `openspec/changes/fin-agent-os/` (repo-root relative)
+- **Upstream content**: agents/skills/MCPs live in the upstream `anthropics/financial-services` repo. Path is configured via the `UPSTREAM_PLUGINS_PATH` env var — set it to the local `plugins/` directory.
 
 ## Architecture
 

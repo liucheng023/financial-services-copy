@@ -15,13 +15,17 @@ Completed before any code. Fixes:
 
 ### Task 1: Supabase Schema Contract
 
-- [ ] Write SQL migration for all tables: `agents`, `skills`, `verticals`, `mcp_servers`, `agent_skills`, `agent_mcps`, `vertical_skills`, `vertical_mcps`, `chat_sessions`, `chat_messages`, `model_configs`
+- [ ] Write SQL migration `2033_fin_agent/supabase/migrations/0001_initial_schema.sql` covering all tables: `agents`, `skills`, `verticals`, `mcp_servers`, `agent_skills`, `agent_mcps`, `vertical_skills`, `vertical_mcps`, `chat_sessions`, `chat_messages`, `model_configs`
 - [ ] `chat_sessions.user_id` MUST be `UUID NULL` (Phase 2 migration readiness)
-- [ ] `model_configs.api_key` MUST be `TEXT` (Phase 1 stored as-is; Phase 2 encrypt at rest)
+- [ ] `model_configs.api_key` and `mcp_servers.api_key` stored as plain `TEXT` (NOT `_encrypted` — see backend/AGENTS.md "Secret Storage Policy"). `mcp_servers.api_key` is nullable.
+- [ ] Include unique constraints on `slug` columns and on association-table composite keys
 - [ ] Include indexes: `agents(slug)`, `skills(slug)`, `verticals(slug)`, `mcp_servers(slug)`, `chat_sessions(agent_id)`, `chat_messages(session_id, created_at)`
-- [ ] Run migration against a Supabase project (local or cloud)
-- **Deliverable**: `backend/app/core/schema.sql` committed; migration applied; `\dt` shows all tables
-- **Verification**: `psql` query returns 0 rows for all tables (empty but schema exists)
+- [ ] `chat_messages` covers: `role`, `content`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at`
+- [ ] Add SQL comments at the top of `mcp_servers` and `model_configs` documenting the secret-disclosure policy (responses never return plaintext `api_key`)
+- [ ] Statically validate the SQL: pipe through `psql --no-psqlrc -f - --set ON_ERROR_STOP=1` against a throwaway local Postgres (e.g., `docker run --rm -d postgres:16`) — this proves the SQL parses and executes, without committing to a real Supabase project.
+- [ ] If a real Supabase project + service-role credentials are available, apply the migration there and record the result; otherwise SKIP this step and explicitly note "no Supabase environment available yet".
+- **Deliverable**: `2033_fin_agent/supabase/migrations/0001_initial_schema.sql` committed; SQL passes syntactic + structural validation on a throwaway Postgres
+- **Verification**: Container run logs show all `CREATE TABLE` / `CREATE INDEX` succeed with exit code 0; `\dt` lists all 11 tables; `\d+ chat_sessions` shows `user_id` as nullable UUID
 
 ### Task 2: Importer — Agent Parser
 

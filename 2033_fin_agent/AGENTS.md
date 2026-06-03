@@ -14,8 +14,7 @@ This is the root AGENTS.md for `2033_fin_agent/`. All agents working in this rep
 **This repo contains CODE. The agent / skill / MCP DEFINITIONS live in the upstream content repo** (originally cloned from `anthropics/financial-services`). The upstream path is **NOT hardcoded** — it is configured via the `UPSTREAM_PLUGINS_PATH` env var.
 
 Common values:
-- Current dev machine: `UPSTREAM_PLUGINS_PATH=/root/financial_agent/plugins`
-- Teammate machine: `UPSTREAM_PLUGINS_PATH=/home/music_admin/fin_agent/plugins`
+- Local dev: set `UPSTREAM_PLUGINS_PATH` to your local clone of the upstream `anthropics/financial-services` repo, pointing at its `plugins/` directory
 - CI / container: mounted at a known path, set via env
 
 Rules:
@@ -107,9 +106,9 @@ Phase 2 will introduce Supabase Auth + JWT + RLS + per-user session ownership. P
 
 1. Read this file (you are here)
 2. Read `backend/AGENTS.md` or `frontend/AGENTS.md` depending on your task
-3. Read the relevant OpenSpec change in `/root/financial_agent/openspec/changes/fin-agent-os/`
+3. Read the relevant OpenSpec change in `openspec/changes/fin-agent-os/` (path relative to the repo root)
 4. Check `tasks.md` for current task status
-5. For agent/skill questions, read `/root/financial_agent/CLAUDE.md`
+5. For upstream agent/skill conventions, read `CLAUDE.md` at the repo root
 
 ## Verification Before "Done"
 

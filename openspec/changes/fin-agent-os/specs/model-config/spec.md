@@ -18,7 +18,7 @@ Then 显示 GLM-5 配置卡片，API key 显示为"****xxxx"
 #### Scenario: 配置 GLM-5 模型
 Given 用户点击新增模型配置
 When 用户填写 base_url="https://open.bigmodel.cn/api/paas/v4"，api_key，model_name="glm-5"
-Then 系统保存配置，API key 加密存储
+Then 系统保存配置，api_key 列以明文 TEXT 存储（Phase 1），后续 API 响应中以脱敏形式返回
 
 #### Scenario: 测试模型连接
 Given 用户已配置 GLM-5
@@ -34,11 +34,12 @@ Given 用户已配置 GLM-5 和 GPT-4o
 When 用户将 GLM-5 设为默认
 Then 新建对话时自动使用 GLM-5 模型
 
-### Requirement: 配置加密存储
-- API Keys SHALL be stored using Supabase 加密功能存储
-- API Keys SHALL NOT be returned API 响应中返回明文
+### Requirement: API Key 不外泄
+- API Keys SHALL be stored as plain TEXT in Phase 1（Phase 2 迁移到 Supabase Vault 或 pgcrypto 加密）
+- API Keys MUST NOT be returned in any API response in plaintext
+- List endpoints SHALL expose `has_api_key: bool`; detail endpoints MAY expose `masked_api_key`（如 `****xxxx`）
 
-#### Scenario: API Key 安全存储
+#### Scenario: API Key 不外泄
 Given 用户提交了 API Key
-When 后端保存到 Supabase
-Then API Key 加密存储，GET API 返回时脱敏为"****xxxx"
+When 后端保存到 Supabase 并响应客户端
+Then 数据库中以明文 TEXT 存储（Phase 1），API 响应不返回明文，仅返回 `has_api_key` 或 `masked_api_key`（如 `****xxxx`）

@@ -52,6 +52,8 @@ backend/
 └── .env.example
 ```
 
+> **Database schema lives OUTSIDE this directory** at `2033_fin_agent/supabase/migrations/`. The migration files are the source of truth for the schema. Backend code reads via the Supabase client; it never duplicates the schema as Python dataclasses.
+
 ## Layered Architecture (STRICT)
 
 ```
@@ -79,7 +81,7 @@ SUPABASE_SERVICE_KEY: str
 LLM_BASE_URL: str          # e.g., https://open.bigmodel.cn/api/paas/v4
 LLM_API_KEY: str
 LLM_MODEL: str             # e.g., glm-5
-UPSTREAM_PLUGINS_PATH: str # e.g., /root/financial_agent/plugins or /home/music_admin/fin_agent/plugins
+UPSTREAM_PLUGINS_PATH: str # Absolute path to the upstream plugins/ directory (set per environment)
 INTERNAL_ADMIN_TOKEN: str  # Protects write/sensitive endpoints in Phase 1
 
 # Optional
@@ -178,6 +180,16 @@ Rules:
 - The adapter uses `mcp-use` `OpenAIMCPAdapter` to convert MCP tools → OpenAI function definitions
 - Tool name mapping (e.g., user-facing `capiq` → upstream `s_and_p_global_capiq`) lives in `mcp_servers` table, populated by importer
 - MCP servers are spawned lazily per-chat-session (NOT global singletons — different agents have different MCP access)
+
+## Secret Storage Policy (Phase 1)
+
+- `model_configs.api_key` and `mcp_servers.api_key` are stored as plain `TEXT` columns (nullable for MCPs that don't require keys).
+- DO NOT name these columns `api_key_encrypted` — encryption is not implemented in Phase 1, and a misleading name creates a false sense of security.
+- API responses MUST NEVER return the plaintext `api_key`. Serializers return either:
+  - `has_api_key: bool` — minimal disclosure for list endpoints, or
+  - `masked_api_key: str` — last 4 characters prefixed with `****` for detail endpoints (e.g., `"****abc1"`).
+- The full plaintext key is only used server-side when calling the LLM / MCP server, never sent to the client.
+- Phase 2 will migrate to Supabase Vault or pgcrypto-based encryption at rest, and the column will be renamed at that time.
 
 ## Testing
 
