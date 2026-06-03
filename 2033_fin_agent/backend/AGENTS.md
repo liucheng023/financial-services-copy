@@ -23,7 +23,7 @@ backend/
 │   ├── main.py                  # FastAPI entry point
 │   ├── api/                     # Routers (one file per resource)
 │   │   ├── agents.py            # GET /agents, GET /agents/{slug}
-│   │   ├── chat.py              # POST /chat (SSE streaming)
+│   │   ├── chat.py              # Sessions & messages (SSE streaming)
 │   │   ├── verticals.py
 │   │   ├── mcp.py               # MCP server management
 │   │   └── admin.py             # Model config, data import triggers
@@ -41,7 +41,7 @@ backend/
 │   │   └── llm_adapter.py
 │   ├── models/                  # Pydantic schemas (request/response)
 │   └── importers/               # One-off scripts to import from upstream
-│       ├── import_agents.py     # Reads /root/financial_agent/plugins/agent-plugins/
+│       ├── import_agents.py     # Reads $UPSTREAM_PLUGINS_PATH/agent-plugins/
 │       ├── import_skills.py     # Reads vertical-plugins/<vertical>/skills/
 │       ├── import_mcps.py       # Reads vertical-plugins/*/.mcp.json
 │       └── README.md            # How to run importers
@@ -79,7 +79,8 @@ SUPABASE_SERVICE_KEY: str
 LLM_BASE_URL: str          # e.g., https://open.bigmodel.cn/api/paas/v4
 LLM_API_KEY: str
 LLM_MODEL: str             # e.g., glm-5
-UPSTREAM_PLUGINS_PATH: str # e.g., /root/financial_agent/plugins (for importers)
+UPSTREAM_PLUGINS_PATH: str # e.g., /root/financial_agent/plugins or /home/music_admin/fin_agent/plugins
+INTERNAL_ADMIN_TOKEN: str  # Protects write/sensitive endpoints in Phase 1
 
 # Optional
 LOG_LEVEL: str = "INFO"
@@ -91,31 +92,85 @@ NEVER hardcode any of these. NEVER commit `.env`.
 ## API Conventions
 
 - **REST + SSE for streaming**: Plain JSON for CRUD, Server-Sent Events for chat streaming
-- **Paths**: Plural nouns. `/agents`, `/agents/{slug}`, `/chat`, `/mcp-servers`
-- **Errors**: Standard FastAPI `HTTPException` with structured detail. Frontend reads `error.detail.code` + `error.detail.message`.
+- **Paths**: All under `/api/`. Plural nouns. `/api/agents`, `/api/agents/{slug}`, `/api/sessions`, `/api/mcp-servers`
+- **Errors**: Standard FastAPI `HTTPException`. Response body uses RFC 7807 problem details shape: `{ "type": "about:blank", "title": "...", "status": 404, "code": "agent_not_found", "detail": "..." }`. Frontend reads `code` for branching and `detail` for display.
 - **Pagination**: `?limit=20&offset=0`, response includes `total`
-- **Auth**: Phase 1 = Supabase Auth JWT in `Authorization: Bearer <token>`. Validated via dependency.
+- **Auth (Phase 1)**:
+  - Read endpoints: public, no auth
+  - Write endpoints (`POST/PUT/DELETE` on `/api/import/*`, `/api/mcp-servers`, `/api/model-configs`): require `X-Admin-Token: <INTERNAL_ADMIN_TOKEN>` header. Validated via FastAPI dependency `require_admin_token`. Mismatch → 401.
+  - Chat endpoints: public, sessions are anonymous (no user_id)
+  - Phase 2 will replace with Supabase Auth JWT in `Authorization: Bearer <token>`
+
+### Endpoint Catalog (Phase 1)
+
+```
+# Public read endpoints
+GET    /api/agents
+GET    /api/agents/{slug}
+GET    /api/verticals
+GET    /api/verticals/{slug}
+GET    /api/mcp-servers
+GET    /api/mcp-servers/{id}
+GET    /api/model-configs
+
+# Public chat endpoints (anonymous sessions)
+POST   /api/sessions                        # Create session bound to one agent
+POST   /api/sessions/{id}/messages          # Send user message, stream agent response via SSE
+GET    /api/sessions                        # List sessions (Phase 1: returns all, anonymous)
+GET    /api/sessions/{id}                   # Get session detail with full message history
+DELETE /api/sessions/{id}                   # Delete a session
+
+# Admin-protected write endpoints (require X-Admin-Token)
+POST   /api/import/all                      # Full re-import from $UPSTREAM_PLUGINS_PATH
+POST   /api/import/agents
+POST   /api/import/verticals
+POST   /api/import/mcps
+POST   /api/mcp-servers                     # Create MCP server config
+PUT    /api/mcp-servers/{id}
+POST   /api/model-configs                   # Create model config
+PUT    /api/model-configs/{id}
+POST   /api/mcp-servers/{id}/test           # Test connection
+POST   /api/model-configs/{id}/test         # Test LLM connection
+
+# Health
+GET    /health
+```
 
 ### Streaming Chat Endpoint
 
-`POST /chat` returns `text/event-stream`. Events:
+`POST /api/sessions/{id}/messages` accepts `{"content": "user message text"}` and returns `Content-Type: text/event-stream`.
+
+The user message is persisted FIRST (returns 200 with SSE headers), then the agent response streams. SSE event names follow the Vercel AI SDK data-stream conventions adapted for our tool-call model:
 
 ```
+event: message_start
+data: {"message_id": "msg_...", "session_id": "ses_..."}
+
 event: token
-data: {"content": "..."}
+data: {"delta": "..."}                # Incremental assistant text
 
 event: tool_call
-data: {"tool": "capiq_get_financials", "args": {...}}
+data: {"tool_call_id": "...", "tool": "capiq_get_financials", "args": {...}}
 
 event: tool_result
-data: {"tool": "capiq_get_financials", "result": "..."}
+data: {"tool_call_id": "...", "result": "...", "is_error": false}
 
-event: done
-data: {"message_id": "..."}
+event: message_complete
+data: {"message_id": "msg_...", "finish_reason": "stop"}
 
 event: error
-data: {"code": "...", "message": "..."}
+data: {"code": "llm_timeout", "message": "...", "recoverable": false}
+
+event: done
+data: {}                              # Always sent last, even on error, so client can close
 ```
+
+Rules:
+- Every event has a JSON data payload (even empty `{}` for `done`)
+- The connection closes after `done`
+- Mid-stream errors emit `event: error` then `event: done`, NOT an HTTP error code (the response is already 200)
+- `tool_call` may emit MULTIPLE times before its matching `tool_result` (parallel tool calls)
+- Frontend matches `tool_call` ↔ `tool_result` by `tool_call_id`
 
 ## MCP Integration
 

@@ -8,7 +8,7 @@ B2B web platform for financial expert agents. Asia-primary. Phase 1 MVP.
 - **Backend rules**: [backend/AGENTS.md](./backend/AGENTS.md)
 - **Frontend rules**: [frontend/AGENTS.md](./frontend/AGENTS.md)
 - **Spec & tasks**: `/root/financial_agent/openspec/changes/fin-agent-os/`
-- **Upstream content**: `/root/financial_agent/plugins/` (source of agents/skills/MCPs)
+- **Upstream content**: agents/skills/MCPs live in the upstream `anthropics/financial-services` repo. Path is configured via the `UPSTREAM_PLUGINS_PATH` env var (commonly `/root/financial_agent/plugins` on this dev machine).
 
 ## Architecture
 
@@ -30,10 +30,12 @@ B2B web platform for financial expert agents. Asia-primary. Phase 1 MVP.
                   ▼
            ┌──────────────┐
            │  Supabase    │
-           │ (DB + Auth + │
-           │  Storage)    │
+           │  (Postgres + │
+           │   Storage)   │
            └──────────────┘
 ```
+
+Phase 1: no end-user auth. Admin endpoints protected by `X-Admin-Token`. Phase 2 will introduce Supabase Auth.
 
 ## Phase 1 Goal
 

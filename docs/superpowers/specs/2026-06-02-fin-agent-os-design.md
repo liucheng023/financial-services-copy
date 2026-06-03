@@ -196,7 +196,7 @@ model_configs: id, name, base_url, api_key_encrypted, model_name, created_at
 1. **默认 Agent**：默认对话用哪个 Agent？还是纯通用模式（无 system prompt）？
 2. **Skills 注入策略**：全部注入 system prompt（token 开销大）还是按需检索（需要 RAG）？
 3. **文件产出**：Agent 生成 Excel/PPTX 时，前端如何展示？下载链接？在线预览？
-4. **认证**：是否需要用户认证？还是内部工具先不做？
+4. ~~**认证**：是否需要用户认证？~~ → **已决**：Phase 1 不做端到端用户认证，写端点用 `X-Admin-Token` 保护；Phase 2 引入 Supabase Auth。详见 openspec design.md Decision 7。
 5. **MCP API Key 管理**：部分 MCP 需要 API key（Daloopa、FactSet），如何安全存储？
 
 ## Success Criteria

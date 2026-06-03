@@ -24,7 +24,7 @@ Anthropic 的 financial-services 项目是一个纯 markdown/JSON/YAML 内容仓
 - 不实现多 Agent 协作（Phase 2）
 - 不实现记忆系统或周期性自动化（Phase 3）
 - 不实现 Agent/技能包的新增表单（P2 阶段）
-- 不实现用户认证（Phase 1 暂不做，内部工具）
+- 不实现端到端用户认证（Phase 1 为内部工具，写接口用 admin token 保护；Phase 2 引入 Supabase Auth）
 - 不处理 Agent 生成文件（Excel/PPTX）的在线预览（仅提供下载）
 
 ## Decisions
@@ -151,33 +151,31 @@ Agent 的 system prompt 由三层组成：
 
 ### Decision 5: 前端架构
 
-**选择: React + Vite + TailwindCSS + Zustand**
+**选择: Next.js 14 (App Router) + TypeScript + TailwindCSS + shadcn/ui + TanStack Query + Zustand + pnpm**
 
-对标 FinSight 和 Vibe-Trading 的前端架构（均为 React + Vite + Zustand + Tailwind）。
+这是 Decision 1 的具体前端展开。对标 Vercel AI Chatbot 模板 + Vercel AI SDK 数据流协议。
 
-页面结构：
+页面结构（Next.js App Router）：
 ```
-App
-├── Layout (Sidebar + Main)
-│   ├── Sidebar
-│   │   ├── 默认对话
-│   │   ├── 专家 (Agent list)
-│   │   ├── 技能包 (Vertical list)
-│   │   ├── MCP (MCP list)
-│   │   ├── 聊天记录
-│   │   └── 系统配置
-│   └── Main
-│       ├── ChatPage (对话)
-│       ├── AgentListPage / AgentDetailPage
-│       ├── VerticalListPage / VerticalDetailPage
-│       ├── McpListPage / McpDetailPage / McpCreatePage
-│       ├── HistoryPage
-│       └── ConfigPage
+app/
+├── layout.tsx                   # Root layout (Sidebar + Main)
+├── page.tsx                     # Home → redirect to /agents
+├── agents/
+│   ├── page.tsx                 # Agent marketplace (10 cards)
+│   └── [slug]/
+│       ├── page.tsx             # Agent detail (role, workflow, skills, MCPs, guardrails)
+│       └── chat/
+│           └── page.tsx         # Chat with this agent
+├── verticals/page.tsx           # Vertical list
+├── mcp-servers/page.tsx         # MCP management
+├── history/page.tsx             # Chat history
+└── admin/
+    └── settings/page.tsx        # Model config + admin token setting
 ```
 
 对话页面组件：
 ```
-ChatPage
+ChatPage (client component)
 ├── AgentSelector (顶部 Agent 切换)
 ├── MessageList (消息列表，支持流式输出)
 │   ├── UserMessage
@@ -187,6 +185,10 @@ ChatPage
 ├── ChatInput (输入框 + 发送)
 └── AgentInfoPanel (当前 Agent 信息侧栏)
 ```
+
+流式接收：使用 `fetch` + `ReadableStream` 解析 SSE（非原生 `EventSource`，因为聊天端点是 POST）。
+
+Auth: Phase 1 无登录 UI。Admin 页面通过 `X-Admin-Token` 请求头保护写端点。
 
 ### Decision 6: 后端 API 设计
 
@@ -223,6 +225,70 @@ POST   /api/import/verticals    # 仅导入技能包
 POST   /api/import/mcps         # 仅导入 MCP 配置
 ```
 
+所有写端点（POST/PUT/DELETE on `/api/import/*`, `/api/mcp-servers`, `/api/model-configs`）需要请求头 `X-Admin-Token: <INTERNAL_ADMIN_TOKEN>`。读端点 + 聊天端点公开。
+
+### Decision 7: Auth 策略（Phase 1）
+
+**选择: 内部 admin token 保护写端点，读+聊天端点公开，不做端到端用户认证**
+
+| 维度 | Phase 1 决策 | Phase 2 演进 |
+|---|---|---|
+| 用户登录 | 无 | Supabase Auth (邮箱/SSO) |
+| Session 归属 | 匿名（user_id 列为 nullable，留空） | user_id 绑定登录用户 |
+| 读端点 | 公开 | 公开 |
+| 写端点 | `X-Admin-Token` 头 | 管理员角色 (RBAC) |
+| 聊天端点 | 公开匿名 | 绑定用户 + RLS |
+| 多租户 | 无 | 工作区 (workspaces) + RLS |
+
+**理由**:
+- Phase 1 是内部 MVP，做完整 auth 拖慢交付且会因 Supabase Auth 集成踩坑
+- admin token 足够阻挡误操作（重新导入、修改 MCP 配置）
+- `chat_sessions` 表 schema 必须包含 `user_id UUID NULL`，Phase 2 才能无痛迁移
+- 部署时 `INTERNAL_ADMIN_TOKEN` 通过 Fly.io secrets 注入，前端 admin 页面让运维输入后存 localStorage
+
+### Decision 8: SSE 事件协议
+
+**选择: 仿 Vercel AI SDK data-stream 风格，事件名按 chat lifecycle 命名**
+
+`POST /api/sessions/{id}/messages` 返回 `text/event-stream`，事件顺序：
+
+```
+message_start  → token* → (tool_call → tool_result)* → token* → message_complete → done
+                                                                                     │
+                                  any time on failure:  error → done ────────────────┘
+```
+
+事件 schema（data 段都是 JSON）：
+
+| event | data |
+|---|---|
+| `message_start` | `{message_id, session_id}` |
+| `token` | `{delta: string}` |
+| `tool_call` | `{tool_call_id, tool, args}` |
+| `tool_result` | `{tool_call_id, result, is_error}` |
+| `message_complete` | `{message_id, finish_reason}` |
+| `error` | `{code, message, recoverable}` |
+| `done` | `{}`（永远最后一个，连接关闭） |
+
+**规则**:
+- 用户消息在 stream 启动前已 persisted（HTTP 200 一旦写头就不再变状态码）
+- 流中错误用 `error` 事件 + `done` 结束，不用 HTTP 错误码
+- `tool_call` 可并发多次，frontend 用 `tool_call_id` 配对 `tool_result`
+- 错误响应（4xx/5xx）只发生在流尚未启动前（如 session 不存在），body 是 RFC 7807 problem details JSON：
+  ```json
+  {"type": "about:blank", "title": "Session not found", "status": 404, "code": "session_not_found", "detail": "ses_xxx does not exist"}
+  ```
+
+### Decision 9: Upstream 路径配置
+
+**选择: 全部通过 `UPSTREAM_PLUGINS_PATH` env var 读取，禁止硬编码**
+
+- 当前开发机：`UPSTREAM_PLUGINS_PATH=/root/financial_agent/plugins`
+- 队友机：`UPSTREAM_PLUGINS_PATH=/home/music_admin/fin_agent/plugins`
+- CI/容器：mount 后通过 env 注入
+
+Importer 脚本 (`backend/app/importers/`) 只读上游，禁止 write。这允许 dev 在不同机器、不同 clone 路径都能跑。
+
 ## Risks / Trade-offs
 
 **[Skills 全量注入导致 token 开销过大]** → Phase 1 先做，监控实际 token 消耗。如果单次对话 system prompt 超过 10K tokens，Phase 2 切换为按需检索（RAG）。
@@ -240,5 +306,6 @@ POST   /api/import/mcps         # 仅导入 MCP 配置
 1. **默认对话模式**: 无 Agent 的通用模式下，system prompt 是什么？空白还是有基础指令？
 2. **文件产出展示**: Agent 生成 Excel/PPTX 后，前端如何处理？下载链接还是在线预览？
 3. **MCP 工具名映射**: agent frontmatter 中的 `mcp__capiq__*` 与实际 MCP 服务器的工具名如何映射？
-4. **流式输出**: SSE 流式响应的实现方式——逐 token 还是逐消息？
-5. **并发 MCP 调用**: 多个 MCP 工具调用时是否支持并行？
+4. **并发 MCP 调用**: 多个 MCP 工具调用时是否支持并行？
+
+（已决：流式输出 → Decision 8 选定逐 token + SSE 事件协议；认证 → Decision 7 选定 admin token + Phase 2 演进）

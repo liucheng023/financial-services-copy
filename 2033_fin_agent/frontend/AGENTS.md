@@ -13,8 +13,8 @@ This is `frontend/AGENTS.md`. Read root `../AGENTS.md` first.
   - URL state: `nuqs` or native `useSearchParams`
 - **Forms**: react-hook-form + zod validation
 - **API client**: Generated from backend OpenAPI via `openapi-typescript`
-- **Auth**: Supabase Auth (`@supabase/ssr` for SSR cookie handling)
-- **Streaming**: Native `EventSource` for SSE chat
+- **Auth (Phase 1)**: NONE. No login UI, no Supabase Auth in Phase 1. Admin pages call write endpoints with `X-Admin-Token` header (token entered in admin settings, stored in localStorage). Phase 2 will introduce Supabase Auth via `@supabase/ssr`.
+- **Streaming**: `fetch` + `ReadableStream` for SSE (NOT native `EventSource`; our chat endpoint is POST)
 - **Package manager**: pnpm
 - **Lint**: ESLint + Prettier
 
@@ -35,7 +35,7 @@ frontend/
 │   ├── mcp-servers/page.tsx
 │   ├── admin/
 │   │   └── settings/page.tsx    # Model config (GLM-5 endpoint, etc.)
-│   └── api/                     # Next API routes (auth callback only, business APIs go to backend)
+│   └── api/                     # Next API routes (Phase 1: empty; reserved for Phase 2 auth callback)
 ├── components/
 │   ├── ui/                      # shadcn primitives
 │   ├── layout/                  # Sidebar, Header
@@ -62,7 +62,7 @@ frontend/
 
 - **Default**: Server Components (RSC)
 - **Use `'use client'` only when needed**: hooks, browser APIs, event handlers, state
-- **Phase 1 reality**: Chat UI is heavily interactive → most of `/chat` is client. Marketplace/detail pages → mostly server.
+- **Phase 1 reality**: Chat UI is heavily interactive → most of `/agents/[slug]/chat` is client. Marketplace/detail pages → mostly server.
 - **Data fetching**:
   - Server Components → fetch directly in component (await fetch with cache config)
   - Client Components → TanStack Query
@@ -103,32 +103,62 @@ const agents = await apiClient.GET("/agents");  // Fully typed
 
 ## Chat Streaming Pattern
 
+`EventSource` (native browser API) only supports GET. Our chat endpoint is `POST /api/sessions/{id}/messages` (body carries the message). Therefore use `fetch` with `ReadableStream` for SSE parsing, NOT native `EventSource`.
+
 ```typescript
 // lib/chat/use-chat-stream.ts
-export function useChatStream(agentSlug: string) {
+import { useState } from "react";
+
+type SseEvent =
+  | { type: "message_start"; message_id: string; session_id: string }
+  | { type: "token"; delta: string }
+  | { type: "tool_call"; tool_call_id: string; tool: string; args: unknown }
+  | { type: "tool_result"; tool_call_id: string; result: string; is_error: boolean }
+  | { type: "message_complete"; message_id: string; finish_reason: string }
+  | { type: "error"; code: string; message: string; recoverable: boolean }
+  | { type: "done" };
+
+export function useChatStream(sessionId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
 
   const send = async (content: string) => {
     setStreaming(true);
-    const eventSource = new EventSource(
-      `${BACKEND_URL}/chat?agent=${agentSlug}&message=${encodeURIComponent(content)}`
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/sessions/${sessionId}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      }
     );
-
-    eventSource.addEventListener("token", (e) => {
-      // Append token to last assistant message
-    });
-    eventSource.addEventListener("tool_call", (e) => { /* show tool call UI */ });
-    eventSource.addEventListener("done", () => {
-      eventSource.close();
-      setStreaming(false);
-    });
-    eventSource.addEventListener("error", () => { /* handle */ });
+    if (!res.ok || !res.body) {
+      // Non-2xx happens BEFORE the stream starts (e.g., session not found, validation)
+      throw await parseHttpError(res);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Split by SSE event delimiter "\n\n"
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+      for (const raw of parts) {
+        const evt = parseSseEvent(raw); // parse "event: x\ndata: {...}" -> SseEvent
+        handle(evt);
+      }
+    }
+    setStreaming(false);
   };
 
   return { messages, streaming, send };
 }
 ```
+
+The chat session itself is created via `POST /api/sessions` (returns `{id, agent_slug, ...}`) BEFORE the first message. Frontend keeps `sessionId` in URL or Zustand.
 
 ## Styling Conventions
 

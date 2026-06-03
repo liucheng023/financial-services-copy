@@ -11,11 +11,18 @@ This is the root AGENTS.md for `2033_fin_agent/`. All agents working in this rep
 
 ## Source-of-Truth Rule
 
-**This repo contains CODE. The agent / skill / MCP DEFINITIONS live in `/root/financial_agent/plugins/`** (the original financial-services-copy repo).
+**This repo contains CODE. The agent / skill / MCP DEFINITIONS live in the upstream content repo** (originally cloned from `anthropics/financial-services`). The upstream path is **NOT hardcoded** — it is configured via the `UPSTREAM_PLUGINS_PATH` env var.
 
+Common values:
+- Current dev machine: `UPSTREAM_PLUGINS_PATH=/root/financial_agent/plugins`
+- Teammate machine: `UPSTREAM_PLUGINS_PATH=/home/music_admin/fin_agent/plugins`
+- CI / container: mounted at a known path, set via env
+
+Rules:
 - DO NOT duplicate markdown content into this repo
-- Import scripts (`backend/app/importers/`) READ from `/root/financial_agent/plugins/` and write to Supabase
+- Import scripts (`backend/app/importers/`) READ from `$UPSTREAM_PLUGINS_PATH` and write to Supabase
 - Updating agent prompts → edit upstream markdown → re-run importer
+- Importers MUST be read-only relative to upstream (no writes, no file modifications)
 
 ## Architecture (Locked)
 
@@ -25,7 +32,7 @@ This is the root AGENTS.md for `2033_fin_agent/`. All agents working in this rep
 | Frontend deploy | Vercel | Native Next.js + global CDN |
 | Backend | FastAPI (Python 3.11+) | Mature MCP library ecosystem |
 | Backend deploy | Fly.io (Tokyo single region first) | Asian B2B latency |
-| Database | Supabase (Postgres + Storage + Auth) | One-stop, including chat history |
+| Database | Supabase (Postgres + Storage) | One-stop, including chat history. Phase 1 uses service-role key from backend only; Auth deferred to Phase 2. |
 | MCP adapter | mcp-use (OpenAIMCPAdapter) | Bridges MCP → OpenAI function calling |
 | LLM | Model-agnostic (OpenAI-compatible API). GLM-5 first | NOT Claude-only |
 
@@ -60,10 +67,24 @@ When importing into Supabase, we treat `vertical-plugins/.../skills/` as canonic
 
 ## Forbidden Actions
 
-- Modifying `/root/financial_agent/plugins/` from within `2033_fin_agent/` (upstream is read-only data source)
+- Modifying upstream plugins (`$UPSTREAM_PLUGINS_PATH`) from within `2033_fin_agent/` — upstream is a read-only data source
+- Hardcoding the upstream path. Always read from `UPSTREAM_PLUGINS_PATH` env var
 - Hardcoding LLM provider names. Use config-driven `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`
 - Hardcoding MCP server URLs. Read from imported `mcp_servers` table
 - Skipping the importer and writing agent/skill content directly to Supabase via UI
+
+## Auth Policy (Phase 1)
+
+**Phase 1 does NOT do end-user authentication.** This is an internal B2B tool during MVP. Trade-offs:
+
+- **Read endpoints** (list agents, agent detail, list verticals, list MCP servers, GET sessions/messages) → public, no auth
+- **Write / sensitive endpoints** (POST /api/import/*, POST /api/mcp-servers, PUT /api/mcp-servers/{id}, POST /api/model-configs, PUT /api/model-configs/{id}) → protected by `X-Admin-Token` header, value compared against `INTERNAL_ADMIN_TOKEN` env var
+- **Chat endpoints** (POST /api/sessions, POST /api/sessions/{id}/messages) → public in Phase 1; sessions are anonymous (no user_id). Phase 2 will tie sessions to authenticated users.
+- **No login UI in Phase 1.** No Supabase Auth. No JWT validation. No RLS.
+
+The `INTERNAL_ADMIN_TOKEN` is set in deploy env (Fly.io secrets) and shared out-of-band with operators.
+
+Phase 2 will introduce Supabase Auth + JWT + RLS + per-user session ownership. Phase 1 schema MUST include nullable `user_id` columns on `chat_sessions` so Phase 2 can backfill without migration pain.
 
 ## Phase 1 Scope (MVP)
 
