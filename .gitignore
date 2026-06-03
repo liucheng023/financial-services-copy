@@ -28,6 +28,10 @@ target/
 .env
 .env.local
 .env.*.local
+
+# Local agent / tooling state (not project content)
+.claude/
+.gstack/
 *.key
 *.pem
 
