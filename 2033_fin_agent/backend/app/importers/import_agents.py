@@ -22,30 +22,20 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+from ._cli_common import (
+    UPSTREAM_ENV_VAR,
+    MissingUpstreamPathError,
+    resolve_upstream_root as _resolve_upstream_root,
+)
 from .agent_parser import AgentParseError, discover_agent_files, parse_agent_file
 
 
-UPSTREAM_ENV_VAR = "UPSTREAM_PLUGINS_PATH"
-
-
-class MissingUpstreamPathError(RuntimeError):
-    pass
-
-
-def _resolve_upstream_root() -> Path:
-    raw = os.environ.get(UPSTREAM_ENV_VAR)
-    if not raw:
-        raise MissingUpstreamPathError(
-            f"Environment variable {UPSTREAM_ENV_VAR} is not set. "
-            "Point it at the upstream `plugins/` directory of the "
-            "anthropics/financial-services repo."
-        )
-    root = Path(raw).expanduser()
-    if not root.is_dir():
-        raise MissingUpstreamPathError(
-            f"{UPSTREAM_ENV_VAR}={raw!r} is not an existing directory."
-        )
-    return root
+__all__ = [
+    "UPSTREAM_ENV_VAR",
+    "MissingUpstreamPathError",
+    "_resolve_upstream_root",
+    "main",
+]
 
 
 def main(argv: list[str] | None = None) -> int:

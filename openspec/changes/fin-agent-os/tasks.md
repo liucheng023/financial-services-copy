@@ -52,21 +52,30 @@ Split into two gates so we can ship the parser independently of any Supabase env
 
 ### Task 3: Importer — Skill + Vertical + MCP Parsers
 
-- [ ] Write `backend/app/importers/import_skills.py`:
-  - Read `$UPSTREAM_PLUGINS_PATH/vertical-plugins/*/skills/*/SKILL.md`
-  - Parse frontmatter + content
-  - Write to `skills` + `vertical_skills` tables
-- [ ] Write `backend/app/importers/import_verticals.py`:
-  - Read `$UPSTREAM_PLUGINS_PATH/vertical-plugins/*/plugin.json`
-  - Write to `verticals` table
-- [ ] Write `backend/app/importers/import_mcps.py`:
-  - Read `$UPSTREAM_PLUGINS_PATH/financial-analysis/.mcp.json` (all MCPs centralized here)
-  - Build MCP tool name mapping table (capiq → S&P Global Kensho, etc.)
-  - Write to `mcp_servers` + `vertical_mcps` + `agent_mcps` tables
-- [ ] Write `backend/app/importers/import_all.py`: calls all four in sequence
-- [ ] All scripts idempotent and read-only relative to upstream
-- **Deliverable**: All importers run; Supabase has 7 verticals, 50+ skills, 11 MCPs
-- **Verification**: `SELECT count(*) FROM skills` ≥ 50; `SELECT count(*) FROM mcp_servers` = 11; `SELECT slug, url FROM mcp_servers LIMIT 3` returns real URLs
+Split into two gates so we can ship the parsers + association dry-run independently of any Supabase environment.
+
+#### Task 3a — Parse-only + association dry-run (no Supabase required) ✅
+
+- [x] `backend/app/importers/_cli_common.py`: shared `UPSTREAM_PLUGINS_PATH` resolver + Supabase env-availability check (used by every importer CLI so they all fail the same way with the same message)
+- [x] `backend/app/importers/vertical_parser.py`: `parse_vertical_plugin(plugin_json, slug)` returns `ParsedVertical(slug, name, description, raw_manifest, source_path)`
+- [x] `backend/app/importers/skill_parser.py`: `parse_skill_file(SKILL.md, vertical_slug)` returns `ParsedSkill(slug, name, description, content, vertical_slug, raw_frontmatter, source_path)`; preserves the full SKILL body in `content`
+- [x] `backend/app/importers/mcp_parser.py`: `collect_all_mcp_servers(root)` merges every `vertical-plugins/*/.mcp.json`; surfaces the documented `capiq → sp-global` alias inside `tool_name_map`
+- [x] `backend/app/importers/associations.py`: dry-run derivation of `vertical_skills`, `vertical_mcps`, and `agent_mcp_candidates` with `matched / aliased / unmatched` resolution buckets
+- [x] CLIs: `import_verticals.py`, `import_skills.py`, `import_mcps.py`, `import_all.py`. All default to `--dry-run`; `--apply` is reserved and exits 2 with a "not implemented in Task 3a" message
+- [x] All parsers read-only relative to upstream (enforced by mtime + mode unit test against real upstream files of all three kinds + by docker `:ro` mount during test execution)
+- [x] Missing `UPSTREAM_PLUGINS_PATH` exits each CLI with status 2 and a message naming the env var
+- [x] Upstream-reality findings encoded in tests: 7 verticals, 55 SKILL.md files, 11 MCP slugs centralized in `financial-analysis/.mcp.json` (other verticals' `.mcp.json` exist but with empty `mcpServers`); only `capiq` is a documented user-facing alias mapping to `sp-global` (S&P Global Kensho Capital IQ)
+- **Deliverable**: `python -m app.importers.import_all` (dry-run) prints a JSON report containing exactly `agents: 10, verticals: 7, skills: 55, mcps: 11, vertical_skills: 55, vertical_mcps: 11, agent_mcp_candidates: 15` (matched 4, aliased 4, unmatched 7) with `supabase_write: false`.
+- **Verification**: `pytest backend/tests/importers/ -v` → 23/23 pass (9 from Task 2a + 14 new); `python -m app.importers.import_all` smoke-run exits 0 with the counts above.
+
+#### Task 3b — Supabase write gate (deferred until Supabase env is available)
+
+- [ ] Wire `--apply` on each importer to a writer that upserts into `verticals`, `skills`, `mcp_servers` and populates `vertical_skills`, `vertical_mcps`, `agent_mcps` (using `agent_mcp_candidates` filtered to `matched + aliased`)
+- [ ] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; fail fast with status 2 if either is missing
+- [ ] Idempotent (re-run on slug conflict updates row)
+- [ ] DO NOT claim Supabase has been populated unless `--apply` actually ran against a real Supabase project with credentials configured
+- **Deliverable**: After `--apply` on a real Supabase: `SELECT count(*) FROM verticals = 7`, `FROM skills >= 55`, `FROM mcp_servers = 11`, `FROM vertical_skills >= 55`, `FROM agent_mcps >= 8` (matched + aliased pairs only).
+- **Verification**: Live `psql` against Supabase reports the expected counts. Skip with an explicit log line if no Supabase env.
 
 ### Task 4: Backend Scaffold
 
