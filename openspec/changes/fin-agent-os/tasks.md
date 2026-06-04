@@ -13,31 +13,42 @@ Completed before any code. Fixes:
 
 ## Batch 1: Foundation (Backend First)
 
-### Task 1: Supabase Schema Contract
+### Task 1: Supabase Schema Contract ✅
 
-- [ ] Write SQL migration `2033_fin_agent/supabase/migrations/0001_initial_schema.sql` covering all tables: `agents`, `skills`, `verticals`, `mcp_servers`, `agent_skills`, `agent_mcps`, `vertical_skills`, `vertical_mcps`, `chat_sessions`, `chat_messages`, `model_configs`
-- [ ] `chat_sessions.user_id` MUST be `UUID NULL` (Phase 2 migration readiness)
-- [ ] `model_configs.api_key` and `mcp_servers.api_key` stored as plain `TEXT` (NOT `_encrypted` — see backend/AGENTS.md "Secret Storage Policy"). `mcp_servers.api_key` is nullable.
-- [ ] Include unique constraints on `slug` columns and on association-table composite keys
-- [ ] Include indexes: `agents(slug)`, `skills(slug)`, `verticals(slug)`, `mcp_servers(slug)`, `chat_sessions(agent_id)`, `chat_messages(session_id, created_at)`
-- [ ] `chat_messages` covers: `role`, `content`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at`
-- [ ] Add SQL comments at the top of `mcp_servers` and `model_configs` documenting the secret-disclosure policy (responses never return plaintext `api_key`)
-- [ ] Statically validate the SQL: pipe through `psql --no-psqlrc -f - --set ON_ERROR_STOP=1` against a throwaway local Postgres (e.g., `docker run --rm -d postgres:16`) — this proves the SQL parses and executes, without committing to a real Supabase project.
-- [ ] If a real Supabase project + service-role credentials are available, apply the migration there and record the result; otherwise SKIP this step and explicitly note "no Supabase environment available yet".
+- [x] Write SQL migration `2033_fin_agent/supabase/migrations/0001_initial_schema.sql` covering all tables: `agents`, `skills`, `verticals`, `mcp_servers`, `agent_skills`, `agent_mcps`, `vertical_skills`, `vertical_mcps`, `chat_sessions`, `chat_messages`, `model_configs`
+- [x] `chat_sessions.user_id` MUST be `UUID NULL` (Phase 2 migration readiness)
+- [x] `model_configs.api_key` and `mcp_servers.api_key` stored as plain `TEXT` (NOT `_encrypted` — see backend/AGENTS.md "Secret Storage Policy"). `mcp_servers.api_key` is nullable.
+- [x] Include unique constraints on `slug` columns and on association-table composite keys
+- [x] Include indexes: `agents(slug)`, `skills(slug)`, `verticals(slug)`, `mcp_servers(slug)`, `chat_sessions(agent_id)`, `chat_messages(session_id, created_at)`
+- [x] `chat_messages` covers: `role`, `content`, `tool_calls` (jsonb), `tool_results` (jsonb), `created_at`
+- [x] Add SQL comments at the top of `mcp_servers` and `model_configs` documenting the secret-disclosure policy (responses never return plaintext `api_key`)
+- [x] Statically validate the SQL: pipe through `psql --no-psqlrc -f - --set ON_ERROR_STOP=1` against a throwaway local Postgres (e.g., `docker run --rm -d postgres:16`) — this proves the SQL parses and executes, without committing to a real Supabase project.
+- [ ] If a real Supabase project + service-role credentials are available, apply the migration there and record the result; otherwise SKIP this step and explicitly note "no Supabase environment available yet". → **SKIPPED**: no Supabase environment available yet.
 - **Deliverable**: `2033_fin_agent/supabase/migrations/0001_initial_schema.sql` committed; SQL passes syntactic + structural validation on a throwaway Postgres
 - **Verification**: Container run logs show all `CREATE TABLE` / `CREATE INDEX` succeed with exit code 0; `\dt` lists all 11 tables; `\d+ chat_sessions` shows `user_id` as nullable UUID
 
 ### Task 2: Importer — Agent Parser
 
-- [ ] Write `backend/app/importers/import_agents.py`:
-  - Read `$UPSTREAM_PLUGINS_PATH/agent-plugins/*/agents/*.md`
-  - Parse frontmatter (name, slug, tools list, etc.) and body (system prompt)
-  - Parse `plugin.json` for metadata
-  - Write to `agents` + `agent_skills` + `agent_mcps` tables in Supabase
-- [ ] Must be idempotent (re-run overwrites existing rows)
-- [ ] Must be read-only relative to upstream filesystem
-- **Deliverable**: Script runs, Supabase `agents` table has 10 rows
-- **Verification**: `SELECT count(*) FROM agents` = 10; spot-check `pitch-agent` system_prompt is non-empty
+Split into two gates so we can ship the parser independently of any Supabase environment. The agent-skills / agent-mcps association tables are populated in Task 3 alongside the skill and MCP importers — Task 2 only touches the `agents` table.
+
+#### Task 2a — Parse-only (no Supabase required) ✅
+
+- [x] Add minimal backend Python scaffold needed by the importer: `backend/pyproject.toml`, `backend/app/__init__.py`, `backend/app/importers/__init__.py`, `backend/tests/`
+- [x] `backend/app/importers/agent_parser.py`: pure parser. Reads one agent markdown + its sibling `plugin.json`, returns a `ParsedAgent` dataclass with `slug`, `name`, `description`, `system_prompt`, `workflow`, `guardrails`, `outputs`, `raw_frontmatter`, `plugin_metadata`, `source_path`. NO Supabase, NO FastAPI, NO I/O beyond reading the two given files.
+- [x] `backend/app/importers/import_agents.py`: CLI that resolves `UPSTREAM_PLUGINS_PATH`, discovers `agent-plugins/*/agents/*.md`, parses each, and emits a JSON summary to stdout. Default mode is `--dry-run`. `--apply` is reserved for Task 2b and currently exits non-zero with a clear "not implemented in Task 2a" message.
+- [x] Read-only invariant: parser MUST NOT open any upstream file for writing. Enforced by unit test that compares mtime + mode before/after parsing real upstream files.
+- [x] Missing `UPSTREAM_PLUGINS_PATH` raises `MissingUpstreamPathError` from the resolver and exits the CLI with status 2 and a clear message naming the env var.
+- [x] Unit tests cover: real `pitch-agent` parse, 10-agent discovery, read-only filesystem invariant, missing-env error, dry-run CLI summary contains `pitch-agent`, frontmatter validation rejects missing/blank `name`.
+- **Deliverable**: `python -m app.importers.import_agents` (dry-run) prints a JSON summary listing all 10 upstream agents with non-empty system prompts. No Supabase touched.
+- **Verification**: `pytest backend/tests/importers/test_agent_parser.py -v` → 9/9 pass; CLI dry-run output shows `"discovered": 10, "parsed": 10, "errors": 0` and every agent has `has_workflow / has_guardrails / has_outputs = true`.
+
+#### Task 2b — Supabase write gate (deferred until Supabase env is available)
+
+- [ ] Wire `--apply` to a `SupabaseAgentWriter` that upserts each `ParsedAgent` into the `agents` table on `slug` conflict (idempotent re-run).
+- [ ] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; CLI fails fast with status 2 if either is missing.
+- [ ] DO NOT claim that agents are imported to Supabase unless the apply step actually ran against a real Supabase project with credentials configured.
+- **Deliverable**: `python -m app.importers.import_agents --apply` against a real Supabase project results in `SELECT count(*) FROM agents = 10`; spot-check `pitch-agent.system_prompt` is non-empty.
+- **Verification**: Live `psql` against the configured Supabase reports the expected row count. Skip with an explicit log line ("no Supabase environment available yet") if not configured.
 
 ### Task 3: Importer — Skill + Vertical + MCP Parsers
 
