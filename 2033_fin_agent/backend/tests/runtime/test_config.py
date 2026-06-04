@@ -75,3 +75,21 @@ def test_secret_str_not_in_validation_error_when_one_field_is_invalid(
     with pytest.raises(Exception) as ei:
         Settings()  # type: ignore[call-arg]
     assert "non-leaky-secret-zzz" not in str(ei.value)
+
+
+def test_supabase_db_url_is_optional_and_absent_by_default(env_setup) -> None:
+    from app.core.config import get_settings
+
+    s = get_settings()
+    assert s.SUPABASE_DB_URL is None
+
+
+def test_supabase_db_url_is_secret_when_set(env_setup_with_db_url) -> None:
+    from app.core.config import get_settings
+
+    db_url = env_setup_with_db_url
+    s = get_settings()
+    assert s.SUPABASE_DB_URL is not None
+    assert s.SUPABASE_DB_URL.get_secret_value() == db_url
+    assert "db-url-secret-zzz" not in repr(s)
+    assert "db-url-secret-zzz" not in str(s)

@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     UPSTREAM_PLUGINS_PATH: str = Field(min_length=1)
     INTERNAL_ADMIN_TOKEN: SecretStr = Field(min_length=1)
 
+    # Optional. Postgres connection string used by migration / direct-SQL tooling
+    # (psql, supabase-cli). The FastAPI runtime never reads it — it talks PostgREST
+    # via SUPABASE_URL + SUPABASE_SERVICE_KEY. Kept as SecretStr because the URL
+    # carries the database password.
+    SUPABASE_DB_URL: SecretStr | None = None
+
     CORS_ORIGINS: str = "http://localhost:3000"
     LOG_LEVEL: str = "INFO"
 
