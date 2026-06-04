@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 UPSTREAM_ENV_VAR = "UPSTREAM_PLUGINS_PATH"
 
 

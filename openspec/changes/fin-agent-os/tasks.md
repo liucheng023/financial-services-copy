@@ -77,18 +77,23 @@ Split into two gates so we can ship the parsers + association dry-run independen
 - **Deliverable**: After `--apply` on a real Supabase: `SELECT count(*) FROM verticals = 7`, `FROM skills >= 55`, `FROM mcp_servers = 11`, `FROM vertical_skills >= 55`, `FROM agent_mcps >= 8` (matched + aliased pairs only).
 - **Verification**: Live `psql` against Supabase reports the expected counts. Skip with an explicit log line if no Supabase env.
 
-### Task 4: Backend Scaffold
+### Task 4: Backend Scaffold ✅
 
-- [ ] Initialize FastAPI project: `pyproject.toml`, `uv` config, Python 3.11+
-- [ ] `app/main.py`: FastAPI app with CORS, `/health` endpoint
-- [ ] `app/core/config.py`: Pydantic Settings loading all env vars (SUPABASE_URL, SUPABASE_SERVICE_KEY, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, UPSTREAM_PLUGINS_PATH, INTERNAL_ADMIN_TOKEN, CORS_ORIGINS, LOG_LEVEL)
-- [ ] `app/core/supabase.py`: async Supabase client singleton
-- [ ] `app/core/deps.py`: `require_admin_token` dependency
-- [ ] `app/api/agents.py`: `GET /api/agents`, `GET /api/agents/{slug}` (read from Supabase)
-- [ ] `Dockerfile` + `fly.toml` (region nrt)
-- [ ] `.env.example`
-- **Deliverable**: `uv run uvicorn app.main:app` starts; `GET /health` returns 200; `GET /api/agents` returns JSON (after importers run)
-- **Verification**: curl test against running dev server
+Scope intentionally narrow: runtime spine + secret-safe config + Supabase boundary + admin guard + Supabase smoke. The read-only `/api/agents` family stays in Task 5 so this gate is fully testable without Supabase credentials.
+
+- [x] `backend/pyproject.toml`: adds `fastapi`, `uvicorn[standard]`, `pydantic>=2.7`, `pydantic-settings`, `supabase>=2.7`, `httpx`; dev adds `pyright` to match `backend/AGENTS.md`
+- [x] `backend/app/main.py`: FastAPI app, CORS from `CORS_ORIGINS`, registers `/health` only. No `/api/*` yet (asserted by `test_openapi_lists_only_health_in_phase4`)
+- [x] `backend/app/core/config.py`: Pydantic `BaseSettings` for `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `UPSTREAM_PLUGINS_PATH`, `INTERNAL_ADMIN_TOKEN`, `CORS_ORIGINS`, `LOG_LEVEL`. All credential fields use `pydantic.SecretStr` so plaintext cannot appear in `repr`, `str`, or `ValidationError` messages (asserted by 2 dedicated tests). Required fields fail validation with the env name when missing.
+- [x] `backend/app/core/supabase.py`: single `get_supabase()` async factory built on `supabase>=2`'s `acreate_client`. All Supabase access must go through this boundary; business code is forbidden from constructing its own client (rule documented in module docstring)
+- [x] `backend/app/core/deps.py`: `require_admin_token` FastAPI dependency. Uses `hmac.compare_digest`. On failure raises a 401 whose body follows the RFC 7807 problem shape declared in backend/AGENTS.md (`code=admin_token_invalid`)
+- [x] `backend/app/api/health.py`: `GET /health` returns `{"status":"ok","service":"fin-agent-os-backend"}`. Intentionally does NOT touch Supabase or the LLM so an outage cannot mark the service unhealthy
+- [x] `backend/scripts/smoke_supabase.py`: standalone read-only connectivity check. Probes all 11 Phase 1 tables with `count="exact", head=True`. Exit codes — 0 ok, 2 missing `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`, 3 a probed table errored. Never writes
+- [x] `backend/Dockerfile`: `python:3.11-slim` base, installs from `pyproject.toml`, runs `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- [x] `backend/fly.toml`: `primary_region = "nrt"`, http health check on `/health`, scale-to-zero defaults
+- [x] `backend/.env.example`: every required + optional env var with empty values; `.env` already in `.gitignore`
+- **Deliverable**: `uvicorn app.main:app` starts; `GET /health` returns 200 with the documented JSON; `python -m scripts.smoke_supabase` exits 2 with a clear message when Supabase env is missing.
+- **Verification**: `pytest backend/tests/ -v` → 37/37 pass (23 from Tasks 2a+3a + 14 new in `tests/runtime/`); `ruff check .` → clean. `pyright` is wired into `pyproject.toml` but was not executed in the current sandbox because the bundled node download exceeds the available network budget — CI must run it.
+- **Supabase connection status**: NOT attempted. The smoke script and the rest of the scaffold have not been pointed at a real Supabase project. No data was read or written.
 
 ## Batch 2: Backend Core
 

@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 
 from ._cli_common import (
-    UPSTREAM_ENV_VAR,
     MissingUpstreamPathError,
     resolve_upstream_root,
     supabase_env_available,

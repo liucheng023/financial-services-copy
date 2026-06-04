@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 from app.importers._cli_common import UPSTREAM_ENV_VAR
+from app.importers.agent_parser import discover_agent_files, parse_agent_file
 from app.importers.associations import (
     derive_agent_mcp_candidates,
     derive_vertical_mcp_associations,
     derive_vertical_skill_associations,
 )
-from app.importers.agent_parser import discover_agent_files, parse_agent_file
 from app.importers.import_all import main as import_all_main
 from app.importers.import_mcps import main as import_mcps_main
 from app.importers.import_skills import main as import_skills_main
@@ -31,7 +31,6 @@ from app.importers.vertical_parser import (
     discover_vertical_plugins,
     parse_vertical_plugin,
 )
-
 
 EXPECTED_VERTICALS = {
     "equity-research",

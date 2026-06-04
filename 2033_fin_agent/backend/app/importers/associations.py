@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from .agent_parser import ParsedAgent
 from .mcp_parser import ParsedMcpServer, build_tool_name_map
 from .skill_parser import ParsedSkill
-from .vertical_parser import ParsedVertical
-
 
 _AGENT_TOOL_MCP_RE = re.compile(r"mcp__([A-Za-z0-9_\-]+)__")
 

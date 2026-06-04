@@ -20,15 +20,15 @@ import json
 import os
 import sys
 from dataclasses import asdict
-from pathlib import Path
 
 from ._cli_common import (
     UPSTREAM_ENV_VAR,
     MissingUpstreamPathError,
+)
+from ._cli_common import (
     resolve_upstream_root as _resolve_upstream_root,
 )
 from .agent_parser import AgentParseError, discover_agent_files, parse_agent_file
-
 
 __all__ = [
     "UPSTREAM_ENV_VAR",
