@@ -42,13 +42,13 @@ Split into two gates so we can ship the parser independently of any Supabase env
 - **Deliverable**: `python -m app.importers.import_agents` (dry-run) prints a JSON summary listing all 10 upstream agents with non-empty system prompts. No Supabase touched.
 - **Verification**: `pytest backend/tests/importers/test_agent_parser.py -v` → 9/9 pass; CLI dry-run output shows `"discovered": 10, "parsed": 10, "errors": 0` and every agent has `has_workflow / has_guardrails / has_outputs = true`.
 
-#### Task 2b — Supabase write gate (deferred until Supabase env is available)
+#### Task 2b — Supabase write gate ✅
 
-- [ ] Wire `--apply` to a `SupabaseAgentWriter` that upserts each `ParsedAgent` into the `agents` table on `slug` conflict (idempotent re-run).
-- [ ] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; CLI fails fast with status 2 if either is missing.
-- [ ] DO NOT claim that agents are imported to Supabase unless the apply step actually ran against a real Supabase project with credentials configured.
-- **Deliverable**: `python -m app.importers.import_agents --apply` against a real Supabase project results in `SELECT count(*) FROM agents = 10`; spot-check `pitch-agent.system_prompt` is non-empty.
-- **Verification**: Live `psql` against the configured Supabase reports the expected row count. Skip with an explicit log line ("no Supabase environment available yet") if not configured.
+- [x] Wire `--apply` to `app.importers.supabase_writer.upsert_agents` that upserts each `ParsedAgent` into the `agents` table on `slug` conflict (idempotent re-run).
+- [x] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; CLI fails fast with status 2 if either is missing.
+- [x] Live `--apply` ran against the real Supabase project and `SELECT count(*) FROM agents` returns `10`.
+- **Deliverable**: `python -m app.importers.import_agents --apply` against the real Supabase project results in `SELECT count(*) FROM agents = 10`.
+- **Verification**: Live `psql` against the configured Supabase reports `agents = 10`. Writer covered by `tests/importers/test_supabase_writer.py` (10 mocked-client tests asserting conflict keys, FK lookup, idempotent payload, `api_key` never invented).
 
 ### Task 3: Importer — Skill + Vertical + MCP Parsers
 
@@ -68,14 +68,16 @@ Split into two gates so we can ship the parsers + association dry-run independen
 - **Deliverable**: `python -m app.importers.import_all` (dry-run) prints a JSON report containing exactly `agents: 10, verticals: 7, skills: 55, mcps: 11, vertical_skills: 55, vertical_mcps: 11, agent_mcp_candidates: 15` (matched 4, aliased 4, unmatched 7) with `supabase_write: false`.
 - **Verification**: `pytest backend/tests/importers/ -v` → 23/23 pass (9 from Task 2a + 14 new); `python -m app.importers.import_all` smoke-run exits 0 with the counts above.
 
-#### Task 3b — Supabase write gate (deferred until Supabase env is available)
+#### Task 3b — Supabase write gate ✅
 
-- [ ] Wire `--apply` on each importer to a writer that upserts into `verticals`, `skills`, `mcp_servers` and populates `vertical_skills`, `vertical_mcps`, `agent_mcps` (using `agent_mcp_candidates` filtered to `matched + aliased`)
-- [ ] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; fail fast with status 2 if either is missing
-- [ ] Idempotent (re-run on slug conflict updates row)
-- [ ] DO NOT claim Supabase has been populated unless `--apply` actually ran against a real Supabase project with credentials configured
-- **Deliverable**: After `--apply` on a real Supabase: `SELECT count(*) FROM verticals = 7`, `FROM skills >= 55`, `FROM mcp_servers = 11`, `FROM vertical_skills >= 55`, `FROM agent_mcps >= 8` (matched + aliased pairs only).
-- **Verification**: Live `psql` against Supabase reports the expected counts. Skip with an explicit log line if no Supabase env.
+- [x] `backend/app/importers/supabase_writer.py`: sync `supabase-py` client + per-table upsert helpers. Entity tables use `on_conflict="slug"`; association tables use composite `on_conflict="<fk1>,<fk2>"`. `mcp_servers` writer omits `api_key` from the row dict (writes NULL, never invents a placeholder value).
+- [x] `--apply` on each of `import_verticals.py`, `import_skills.py`, `import_mcps.py`, `import_agents.py`, `import_all.py` calls the writer. `import_all.py` orchestrates the dependency order: verticals → mcp_servers → agents → skills → vertical_skills → vertical_mcps → agent_mcps.
+- [x] Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`; fail fast with status 2 if either is missing. Writer exception → exit 3.
+- [x] Idempotent: second `--apply` against the live Supabase produced identical `written.*` counts and no row-count delta in psql.
+- [x] `agent_mcps` only writes `matched + aliased` candidates (4 + 4 = 8 rows); 7 `unmatched` aliases are reported in `agent_mcp_candidates` and counted in `written.agent_mcps_skipped_unmatched`, never persisted.
+- [x] `--apply` actually ran against the real Supabase project and post-run `psql` counts match the deliverable below exactly.
+- **Deliverable**: After `--apply` on the real Supabase, `psql` reports `verticals=7, skills=55, mcp_servers=11, vertical_skills=55, vertical_mcps=11, agent_mcps=8` and `count(*) FROM mcp_servers WHERE api_key IS NOT NULL = 0`.
+- **Verification**: Live `psql` against the configured Supabase reports the expected counts. Wire-level idempotency covered by `tests/importers/test_supabase_writer.py::test_idempotent_second_call_produces_same_payload`; row-level idempotency verified by running `--apply` twice in sequence with identical post-counts. `pytest backend/tests/` → 49/49 pass (39 from Tasks 2a + 3a + 4 + 10 new writer tests).
 
 ### Task 4: Backend Scaffold ✅
 

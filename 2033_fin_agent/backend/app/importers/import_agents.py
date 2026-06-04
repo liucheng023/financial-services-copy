@@ -61,21 +61,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if args.apply:
-        if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY"):
-            print(
-                "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-                file=sys.stderr,
-            )
-            return 2
+    if args.apply and (
+        not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY")
+    ):
         print(
-            "error: --apply is not implemented in Task 2 (parse-only gate). "
-            "Use --dry-run.",
+            "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
             file=sys.stderr,
         )
         return 2
 
     pairs = discover_agent_files(upstream_root)
+    parsed_objs = []
     parsed = []
     errors = 0
     for md_path, plugin_json in pairs:
@@ -85,13 +81,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PARSE_ERROR {md_path}: {exc}", file=sys.stderr)
             errors += 1
             continue
+        parsed_objs.append(agent)
         parsed.append(asdict(agent))
+
+    written = 0
+    if args.apply and errors == 0:
+        from .supabase_writer import build_client, upsert_agents
+
+        try:
+            client = build_client()
+            written = upsert_agents(client, parsed_objs)
+        except Exception as exc:
+            print(f"WRITE_ERROR agents: {exc}", file=sys.stderr)
+            return 3
 
     summary = {
         "upstream_root": str(upstream_root),
         "discovered": len(pairs),
         "parsed": len(parsed),
         "errors": errors,
+        "supabase_write": bool(args.apply),
+        "written": written,
         "agents": [
             {
                 "slug": a["slug"],

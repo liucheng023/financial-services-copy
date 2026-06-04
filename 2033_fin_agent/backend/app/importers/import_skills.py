@@ -33,21 +33,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if args.apply:
-        if not supabase_env_available():
-            print(
-                "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-                file=sys.stderr,
-            )
-            return 2
+    if args.apply and not supabase_env_available():
         print(
-            "error: --apply is not implemented in Task 3a (parse-only gate). "
-            "Use --dry-run.",
+            "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
             file=sys.stderr,
         )
         return 2
 
     pairs = discover_skill_files(upstream_root)
+    parsed_objs = []
     parsed = []
     errors = 0
     for md_path, v_slug in pairs:
@@ -57,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PARSE_ERROR {md_path}: {exc}", file=sys.stderr)
             errors += 1
             continue
+        parsed_objs.append(s)
         parsed.append(asdict(s))
 
     by_vertical: dict[str, int] = {}
@@ -64,11 +59,33 @@ def main(argv: list[str] | None = None) -> int:
         v = s["vertical_slug"] or "(none)"
         by_vertical[v] = by_vertical.get(v, 0) + 1
 
+    written_skills = 0
+    written_vs = 0
+    if args.apply and errors == 0:
+        from .associations import derive_vertical_skill_associations
+        from .supabase_writer import (
+            build_client,
+            upsert_skills,
+            upsert_vertical_skills,
+        )
+
+        try:
+            client = build_client()
+            written_skills = upsert_skills(client, parsed_objs)
+            vs_pairs = derive_vertical_skill_associations(parsed_objs)
+            written_vs = upsert_vertical_skills(client, vs_pairs)
+        except Exception as exc:
+            print(f"WRITE_ERROR skills: {exc}", file=sys.stderr)
+            return 3
+
     summary = {
         "upstream_root": str(upstream_root),
         "discovered": len(pairs),
         "parsed": len(parsed),
         "errors": errors,
+        "supabase_write": bool(args.apply),
+        "written_skills": written_skills,
+        "written_vertical_skills": written_vs,
         "by_vertical": dict(sorted(by_vertical.items())),
         "sample_skills": [
             {

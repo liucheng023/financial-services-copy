@@ -52,15 +52,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if args.apply:
-        if not supabase_env_available():
-            print(
-                "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-                file=sys.stderr,
-            )
-            return 2
+    if args.apply and not supabase_env_available():
         print(
-            "error: --apply is not implemented in Task 3a (parse-only gate).",
+            "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
             file=sys.stderr,
         )
         return 2
@@ -101,9 +95,46 @@ def main(argv: list[str] | None = None) -> int:
     for c in am_candidates:
         resolution_counts[c.resolution] = resolution_counts.get(c.resolution, 0) + 1
 
+    written: dict[str, int] = {
+        "agents": 0,
+        "verticals": 0,
+        "skills": 0,
+        "mcp_servers": 0,
+        "vertical_skills": 0,
+        "vertical_mcps": 0,
+        "agent_mcps": 0,
+        "agent_mcps_skipped_unmatched": 0,
+    }
+    if args.apply and errors == 0:
+        from .supabase_writer import (
+            build_client,
+            upsert_agent_mcps,
+            upsert_agents,
+            upsert_mcp_servers,
+            upsert_skills,
+            upsert_vertical_mcps,
+            upsert_vertical_skills,
+            upsert_verticals,
+        )
+
+        try:
+            client = build_client()
+            written["verticals"] = upsert_verticals(client, verticals)
+            written["mcp_servers"] = upsert_mcp_servers(client, mcps)
+            written["agents"] = upsert_agents(client, agents)
+            written["skills"] = upsert_skills(client, skills)
+            written["vertical_skills"] = upsert_vertical_skills(client, vs_assoc)
+            written["vertical_mcps"] = upsert_vertical_mcps(client, vm_assoc)
+            am_written, am_skipped = upsert_agent_mcps(client, am_candidates)
+            written["agent_mcps"] = am_written
+            written["agent_mcps_skipped_unmatched"] = am_skipped
+        except Exception as exc:
+            print(f"WRITE_ERROR import_all: {exc}", file=sys.stderr)
+            return 3
+
     report = {
         "upstream_root": str(upstream_root),
-        "supabase_write": False,
+        "supabase_write": bool(args.apply),
         "errors": errors,
         "counts": {
             "agents": len(agents),
@@ -114,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             "vertical_mcps": len(vm_assoc),
             "agent_mcp_candidates": len(am_candidates),
         },
+        "written": written,
         "agent_mcp_resolution": resolution_counts,
         "verticals": [v.slug for v in verticals],
         "mcps": [m.slug for m in mcps],

@@ -32,16 +32,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if args.apply:
-        if not supabase_env_available():
-            print(
-                "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-                file=sys.stderr,
-            )
-            return 2
+    if args.apply and not supabase_env_available():
         print(
-            "error: --apply is not implemented in Task 3a (parse-only gate). "
-            "Use --dry-run.",
+            "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
             file=sys.stderr,
         )
         return 2
@@ -49,10 +42,32 @@ def main(argv: list[str] | None = None) -> int:
     json_files = discover_mcp_json_files(upstream_root)
     servers = collect_all_mcp_servers(upstream_root)
 
+    written_mcps = 0
+    written_vm = 0
+    if args.apply:
+        from .associations import derive_vertical_mcp_associations
+        from .supabase_writer import (
+            build_client,
+            upsert_mcp_servers,
+            upsert_vertical_mcps,
+        )
+
+        try:
+            client = build_client()
+            written_mcps = upsert_mcp_servers(client, servers)
+            vm_pairs = derive_vertical_mcp_associations(servers)
+            written_vm = upsert_vertical_mcps(client, vm_pairs)
+        except Exception as exc:
+            print(f"WRITE_ERROR mcps: {exc}", file=sys.stderr)
+            return 3
+
     summary = {
         "upstream_root": str(upstream_root),
         "mcp_json_files": [str(p) for p in json_files],
         "discovered_servers": len(servers),
+        "supabase_write": bool(args.apply),
+        "written_mcps": written_mcps,
+        "written_vertical_mcps": written_vm,
         "servers": [
             {
                 "slug": s.slug,

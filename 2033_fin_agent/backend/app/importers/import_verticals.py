@@ -33,21 +33,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if args.apply:
-        if not supabase_env_available():
-            print(
-                "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-                file=sys.stderr,
-            )
-            return 2
+    if args.apply and not supabase_env_available():
         print(
-            "error: --apply is not implemented in Task 3a (parse-only gate). "
-            "Use --dry-run.",
+            "error: --apply requires SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
             file=sys.stderr,
         )
         return 2
 
     pairs = discover_vertical_plugins(upstream_root)
+    parsed_objs = []
     parsed = []
     errors = 0
     for plugin_json, slug in pairs:
@@ -57,13 +51,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PARSE_ERROR {plugin_json}: {exc}", file=sys.stderr)
             errors += 1
             continue
+        parsed_objs.append(v)
         parsed.append(asdict(v))
+
+    written = 0
+    if args.apply and errors == 0:
+        from .supabase_writer import build_client, upsert_verticals
+
+        try:
+            client = build_client()
+            written = upsert_verticals(client, parsed_objs)
+        except Exception as exc:
+            print(f"WRITE_ERROR verticals: {exc}", file=sys.stderr)
+            return 3
 
     summary = {
         "upstream_root": str(upstream_root),
         "discovered": len(pairs),
         "parsed": len(parsed),
         "errors": errors,
+        "supabase_write": bool(args.apply),
+        "written": written,
         "verticals": [
             {
                 "slug": v["slug"],
