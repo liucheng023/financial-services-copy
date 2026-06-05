@@ -119,19 +119,19 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 - **Deliverable**: All CRUD endpoints return correct data from Supabase
 - **Verification**: 63/63 pytest pass; ruff clean; mocked Supabase client; api_key never in response text
 
-### Task 6: MCP Adapter Layer
+### Task 6: MCP Adapter Layer ✅
 
-- [ ] Integrate `mcp-use` library (`pip install mcp-use`)
-- [ ] `app/adapters/mcp_adapter.py`:
+- [x] Integrate `mcp-use` library (`pip install mcp-use`)
+- [x] `app/adapters/mcp_adapter.py`:
   - Load MCP server configs from Supabase for a given agent
   - Initialize MCPClient connections
   - Use OpenAIMCPAdapter to convert tools → OpenAI function schema
   - Implement tool_executors: model returns tool_calls → execute via adapter → return results
-- [ ] `app/services/mcp_service.py`: business logic wrapping the adapter
-- [ ] Lazy initialization per chat session (different agents have different MCP access)
-- [ ] Graceful degradation: if an MCP server is unreachable, log warning, skip its tools
+- [x] `app/services/mcp_service.py`: business logic wrapping the adapter
+- [x] Lazy initialization per chat session (different agents have different MCP access)
+- [x] Graceful degradation: if an MCP server is unreachable, log warning, skip its tools
 - **Deliverable**: Given an agent slug, MCP adapter returns a list of OpenAI function definitions + can execute tool calls
-- **Verification**: Unit test: mock MCP server → adapter returns function schema → mock tool_call → returns result
+- **Verification**: 8 mocked adapter/service tests cover mcp-use config construction, OpenAI function schema exposure, tool execution, unknown tool handling, exception redaction, graceful initialization degradation, Supabase agent→MCP config loading, and service wrapper delegation. `pytest backend/tests/` → 71/71 pass; `ruff check` clean; `openspec validate fin-agent-os --strict` pass. `pyright` attempted in Docker but timed out installing bundled prebuilt node, same sandbox limitation as prior tasks.
 
 ### Task 7: Chat Session + Streaming Engine
 

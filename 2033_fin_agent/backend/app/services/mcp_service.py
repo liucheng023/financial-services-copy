@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..adapters.mcp_adapter import MCPServerConfig, MCPToolset, create_openai_toolset
 from ..models.schemas import (
     McpServerCreateRequest,
     McpServerDetail,
@@ -50,18 +51,7 @@ async def get_mcp_server(client: AsyncClient, server_id: str) -> McpServerDetail
     row = resp.data
     if not row:
         return None
-    has_key, masked = _mask_api_key(row.get("api_key"))
-    return McpServerDetail(
-        id=row["id"],
-        slug=row["slug"],
-        name=row["name"],
-        url=row["url"],
-        transport=row["transport"],
-        description=row.get("description"),
-        has_api_key=has_key,
-        tool_name_map=row.get("tool_name_map", {}),
-        masked_api_key=masked,
-    )
+    return _detail_from_row(row)
 
 
 async def create_mcp_server(
@@ -81,18 +71,7 @@ async def create_mcp_server(
 
     resp = await client.table("mcp_servers").insert(row_data).execute()
     created = resp.data[0] if resp.data else {}
-    has_key, masked = _mask_api_key(created.get("api_key"))
-    return McpServerDetail(
-        id=created["id"],
-        slug=created["slug"],
-        name=created["name"],
-        url=created["url"],
-        transport=created["transport"],
-        description=created.get("description"),
-        has_api_key=has_key,
-        tool_name_map=created.get("tool_name_map", {}),
-        masked_api_key=masked,
-    )
+    return _detail_from_row(created)
 
 
 async def update_mcp_server(
@@ -120,6 +99,46 @@ async def update_mcp_server(
         .execute()
     )
     row = resp.data[0] if resp.data else {}
+    return _detail_from_row(row)
+
+
+async def list_agent_mcp_configs(client: AsyncClient, agent_slug: str) -> list[MCPServerConfig]:
+    agent_resp = await (
+        client.table("agents")
+        .select("id")
+        .eq("slug", agent_slug)
+        .maybe_single()
+        .execute()
+    )
+    agent = agent_resp.data
+    if not agent:
+        return []
+
+    link_resp = await (
+        client.table("agent_mcps")
+        .select("mcp_server_id")
+        .eq("agent_id", agent["id"])
+        .execute()
+    )
+    mcp_ids = [r["mcp_server_id"] for r in link_resp.data or []]
+    if not mcp_ids:
+        return []
+
+    server_resp = await (
+        client.table("mcp_servers")
+        .select("id,slug,name,url,transport,api_key,tool_name_map")
+        .in_("id", mcp_ids)
+        .execute()
+    )
+    return [_config_from_row(row) for row in server_resp.data or []]
+
+
+async def create_agent_mcp_toolset(client: AsyncClient, agent_slug: str) -> MCPToolset:
+    configs = await list_agent_mcp_configs(client, agent_slug)
+    return await create_openai_toolset(configs)
+
+
+def _detail_from_row(row: dict) -> McpServerDetail:
     has_key, masked = _mask_api_key(row.get("api_key"))
     return McpServerDetail(
         id=row["id"],
@@ -131,4 +150,15 @@ async def update_mcp_server(
         has_api_key=has_key,
         tool_name_map=row.get("tool_name_map", {}),
         masked_api_key=masked,
+    )
+
+
+def _config_from_row(row: dict) -> MCPServerConfig:
+    return MCPServerConfig(
+        slug=row["slug"],
+        name=row["name"],
+        url=row["url"],
+        transport=row.get("transport") or "http",
+        api_key=row.get("api_key"),
+        tool_name_map=row.get("tool_name_map", {}),
     )
