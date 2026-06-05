@@ -1,10 +1,9 @@
 """FastAPI entry point.
 
-Scope is intentionally minimal in Task 4: CORS + ``/health`` only.
-The read-only ``/api/agents`` family ships in Task 5, the chat /
-SSE surface in later tasks. Anything that requires Supabase or LLM
-access goes through ``app.core.supabase`` / ``app.core.llm`` and is
-wired in by the owning router, not here.
+CORS + health + read-only APIs (Task 5). Chat / SSE surface ships in later
+tasks. Anything that requires Supabase or LLM access goes through
+``app.core.supabase`` / ``app.core.llm`` and is wired in by the owning
+router, not here.
 """
 
 from __future__ import annotations
@@ -14,7 +13,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.agents import router as agents_router
 from .api.health import router as health_router
+from .api.mcp import router as mcp_router
+from .api.verticals import router as verticals_router
 from .core.config import get_settings
 
 
@@ -37,6 +39,9 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(agents_router)
+    app.include_router(verticals_router)
+    app.include_router(mcp_router)
     return app
 
 

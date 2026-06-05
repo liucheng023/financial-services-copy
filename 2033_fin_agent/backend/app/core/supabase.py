@@ -5,14 +5,9 @@ Business code in ``app/services/`` must never call ``create_client`` /
 ``create_async_client`` directly — that would scatter credentials and make
 testing impossible.
 
-Async choice
-============
-``supabase-py>=2`` exposes ``acreate_client``, which returns an
-``AsyncClient`` whose ``.table(...)`` query chain is awaitable. We use that
-form because every FastAPI handler in this service is async and we never
-want to block the event loop on a Supabase round trip. If the installed
-``supabase-py`` ever drops async support we fail at startup rather than
-silently fall back to a blocking client.
+``get_supabase`` is usable both as a plain async function and as a FastAPI
+dependency (``Depends(get_supabase)``). The latter form allows
+``app.dependency_overrides`` in tests.
 """
 
 from __future__ import annotations
@@ -49,7 +44,6 @@ async def get_supabase() -> AsyncClient:
     return _client
 
 
-async def reset_supabase_client() -> None:
-    """Test-only helper: clear the cached client."""
+def _reset_client_sync() -> None:
     global _client
     _client = None

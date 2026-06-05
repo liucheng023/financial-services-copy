@@ -1,4 +1,4 @@
-"""CLI for the MCP server importer (Task 3a: parse-only)."""
+"""CLI for the MCP server importer."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
         "--apply",
         action="store_true",
         help="Write parsed MCPs to Supabase. Requires SUPABASE_URL and "
-        "SUPABASE_SERVICE_KEY. NOT implemented in Task 3a.",
+        "SUPABASE_SERVICE_KEY. Writer failure exits 3.",
     )
     args = parser.parse_args(argv)
 

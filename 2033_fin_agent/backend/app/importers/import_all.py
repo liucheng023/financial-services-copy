@@ -1,12 +1,11 @@
-"""CLI that runs all parse-only importers and prints a consolidated summary.
+"""CLI that runs all importers, prints a consolidated summary.
 
-Includes a dry-run association report:
+Includes association reports:
 - vertical_skills:  derived from skill path -> vertical
 - vertical_mcps:    derived from .mcp.json path -> vertical
 - agent_mcps:       cross-referenced from agent ``tools:`` frontmatter against
   MCP slugs and known aliases. Reports matched / aliased / unmatched buckets
-  so operators see which tool refs in the upstream are placeholders that
-  firms need to bring themselves.
+  so operators see which tool refs are placeholders.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         "--apply",
         action="store_true",
         help="Write to Supabase. Requires SUPABASE_URL and SUPABASE_SERVICE_KEY. "
-        "NOT implemented in Task 3a.",
+        "Writer failure exits 3.",
     )
     args = parser.parse_args(argv)
 

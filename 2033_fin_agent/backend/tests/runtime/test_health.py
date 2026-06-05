@@ -22,14 +22,13 @@ def test_health_does_not_require_admin_token(env_setup) -> None:
     assert resp.status_code == 200
 
 
-def test_openapi_lists_only_health_in_phase4(env_setup) -> None:
+def test_openapi_includes_api_routes(env_setup) -> None:
     from app.main import create_app
 
     client = TestClient(create_app())
     schema = client.get("/openapi.json").json()
     paths = set(schema["paths"].keys())
     assert "/health" in paths
-    api_paths = {p for p in paths if p.startswith("/api/")}
-    assert api_paths == set(), (
-        f"Task 4 scope: no /api/* routes yet. Got: {sorted(api_paths)}"
-    )
+    assert "/api/agents" in paths
+    assert "/api/verticals" in paths
+    assert "/api/mcp-servers" in paths

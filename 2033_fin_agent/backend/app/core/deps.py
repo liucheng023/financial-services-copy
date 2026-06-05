@@ -6,12 +6,10 @@ in backend/AGENTS.md so the frontend can branch on ``code`` and display
 ``detail``.
 """
 
-from __future__ import annotations
-
 import hmac
 from typing import Annotated
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from .config import Settings, get_settings
 
@@ -31,11 +29,8 @@ def _problem(*, http_status: int, code: str, title: str, detail: str) -> HTTPExc
 
 async def require_admin_token(
     x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
-    settings: Settings = None,  # type: ignore[assignment]
+    settings: Settings = Depends(get_settings),
 ) -> None:
-    if settings is None:
-        settings = get_settings()
-
     expected = settings.INTERNAL_ADMIN_TOKEN.get_secret_value()
 
     if x_admin_token is None or not hmac.compare_digest(x_admin_token, expected):

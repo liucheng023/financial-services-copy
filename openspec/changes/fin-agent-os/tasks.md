@@ -99,19 +99,25 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 
 ## Batch 2: Backend Core
 
-### Task 5: Read-only APIs (Agents, Verticals, MCPs)
+### Task 5: Read-only APIs (Agents, Verticals, MCPs) ✅
 
-- [ ] `GET /api/agents` (list with skill_count, mcp_count)
-- [ ] `GET /api/agents/{slug}` (detail with skills list, mcps list, workflow, guardrails)
-- [ ] `GET /api/verticals` (list)
-- [ ] `GET /api/verticals/{slug}` (detail with skills, mcps)
-- [ ] `GET /api/mcp-servers` (list with status indicator)
-- [ ] `GET /api/mcp-servers/{id}` (detail with tool list)
-- [ ] `POST /api/mcp-servers` (admin-protected, create new MCP config)
-- [ ] `PUT /api/mcp-servers/{id}` (admin-protected)
-- [ ] Add `X-Admin-Token` validation on write endpoints
+- [x] `GET /api/agents` (list with skill_count, mcp_count)
+- [x] `GET /api/agents/{slug}` (detail with skills list, mcps list, workflow, guardrails)
+- [x] `GET /api/verticals` (list)
+- [x] `GET /api/verticals/{slug}` (detail with skills, mcps)
+- [x] `GET /api/mcp-servers` (list with has_api_key, no plaintext api_key)
+- [x] `GET /api/mcp-servers/{id}` (detail with masked_api_key, tool_name_map, no plaintext)
+- [x] `POST /api/mcp-servers` (admin-protected, create new MCP config)
+- [x] `PUT /api/mcp-servers/{id}` (admin-protected)
+- [x] `X-Admin-Token` validation on POST/PUT via `Depends(require_admin_token)`
+- [x] Layered architecture: api/ (thin handlers) → services/ (business logic) → supabase client
+- [x] Pydantic request/response schemas in models/schemas.py
+- [x] RFC 7807 problem-detail errors: agent_not_found, vertical_not_found, mcp_server_not_found
+- [x] Secret policy: api_key never returned in plaintext; list returns has_api_key; detail returns masked_api_key
+- [x] `get_supabase` usable as `Depends()` for test injectability
+- [x] 13 API tests with FakeAsyncClient covering all endpoints, auth, not_found, secret masking
 - **Deliverable**: All CRUD endpoints return correct data from Supabase
-- **Verification**: curl/pytest against each endpoint; admin token required on POST/PUT
+- **Verification**: 63/63 pytest pass; ruff clean; mocked Supabase client; api_key never in response text
 
 ### Task 6: MCP Adapter Layer
 

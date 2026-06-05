@@ -1,16 +1,12 @@
 """CLI entry point for the agent importer.
 
-Phase 1 modes:
+* ``--dry-run`` (default): parse only. Print a JSON summary. Never touches
+  Supabase. Always available, no Supabase env required.
+* ``--apply``: write parsed agents to Supabase via
+  ``app.importers.supabase_writer.upsert_agents``. Requires
+  ``SUPABASE_URL`` and ``SUPABASE_SERVICE_KEY``. Writer failure exits 3.
 
-* ``--dry-run`` (default): parse only. Print a JSON summary of each parsed
-  agent. Never touches Supabase. Always available, no Supabase env required.
-* ``--apply``: write parsed agents to Supabase. Requires ``SUPABASE_URL`` and
-  ``SUPABASE_SERVICE_KEY`` env vars. Raises if either is missing. NOT
-  implemented in Task 2 — Task 2 ships parse-only. The flag is reserved so
-  future tasks add the writer without changing the CLI surface.
-
-The importer is read-only relative to ``$UPSTREAM_PLUGINS_PATH``. It never
-opens any upstream file for writing.
+Read-only relative to ``$UPSTREAM_PLUGINS_PATH``.
 """
 
 from __future__ import annotations
@@ -51,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         "--apply",
         action="store_true",
         help="Write parsed agents to Supabase. Requires SUPABASE_URL and "
-        "SUPABASE_SERVICE_KEY. NOT implemented in Task 2.",
+        "SUPABASE_SERVICE_KEY. Writer failure exits 3.",
     )
     args = parser.parse_args(argv)
 
