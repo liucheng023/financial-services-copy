@@ -278,3 +278,82 @@ def test_update_not_found(api_client: TestClient) -> None:
     )
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "model_config_not_found"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/model-configs/{id}/test
+# ---------------------------------------------------------------------------
+
+
+def test_test_connection_requires_admin(api_client: TestClient) -> None:
+    resp = api_client.post(
+        f"/api/model-configs/{CONFIG_DEFAULT_ID}/test",
+    )
+    assert resp.status_code == 401
+
+
+def test_test_connection_missing_config(api_client: TestClient) -> None:
+    resp = api_client.post(
+        "/api/model-configs/00000000-0000-0000-0000-000000000000/test",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 404
+    body = resp.json()["detail"]
+    assert body["code"] == "model_config_not_found"
+
+
+def test_test_connection_success(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def mock_ok(*_a: object, **_k: object) -> object:
+        from app.models.schemas import ModelConfigTestResult
+
+        return ModelConfigTestResult(ok=True, latency_ms=37)
+
+    import app.services.model_config_service as svc
+
+    monkeypatch.setattr(svc, "test_model_connection", mock_ok)
+
+    resp = api_client.post(
+        f"/api/model-configs/{CONFIG_DEFAULT_ID}/test",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["latency_ms"] == 37
+    assert data["error_code"] is None
+    assert data["error_message"] is None
+
+
+def test_test_connection_failure_redacts_secrets(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def mock_fail(*_a: object, **_k: object) -> object:
+        from app.models.schemas import ModelConfigTestResult
+
+        return ModelConfigTestResult(
+            ok=False,
+            latency_ms=0,
+            error_code="connection_error",
+            error_message="ConnectError: failed to connect to ***redacted***",
+        )
+
+    import app.services.model_config_service as svc
+
+    monkeypatch.setattr(svc, "test_model_connection", mock_fail)
+
+    resp = api_client.post(
+        f"/api/model-configs/{CONFIG_DEFAULT_ID}/test",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is False
+    assert data["error_code"] == "connection_error"
+    # Verify no plaintext secrets leaked through the HTTP response
+    assert "sk-glm-secret" not in resp.text
+    assert "bigmodel" not in resp.text
+    assert "openai" not in resp.text

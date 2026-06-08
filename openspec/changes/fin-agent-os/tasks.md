@@ -150,6 +150,25 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 - **Deliverable**: Admin can create a GLM-5 config via API, test the connection, mark it default; chat runtime (Task 7) will read the default through `get_default_model_config`.
 - **Verification**: `pytest backend/tests/` → 69 passed, 16 skipped (importer integration tests requiring `UPSTREAM_PLUGINS_PATH`); `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass. `test_model_connection` is exercised through an injected `tester=` callable — **no real LLM endpoint is contacted in unit or integration tests**. `pyright` not executed in sandbox (same prebuilt-node download limit hit on Tasks 4/5/6); CI to run it.
 
+#### Known limitation — non-transactional default promotion
+
+`update_model_config(is_default=True)` and `create_model_config(is_default=True)` clear the `is_default` flag on other rows via a separate `update(...).eq("is_default", True).neq("id", new_id)` PostgREST call **before** writing the new default row. These are two independent HTTP requests against PostgREST; they are not wrapped in a single Postgres transaction. The partial unique index `idx_model_configs_one_default` guarantees the invariant at rest, but between the two calls a concurrent admin write could observe either zero defaults (clear succeeded, insert about to run) or fail the second call (if another admin promoted a row in between).
+
+This risk is accepted in Phase 1 because:
+- `/api/model-configs` POST/PUT are guarded by `X-Admin-Token`. The shared-out-of-band token model means there is at most one concurrent admin in practice.
+- The frontend marketplace will be read-only for non-admins.
+
+Phase 2 mitigation (to revisit when admin UX gets richer or when multi-tenant admin lands): replace `_clear_other_defaults` + insert/update with a single Postgres RPC (`SECURITY DEFINER` function) that runs both statements inside one transaction, surfaced as a `rpc("set_default_model_config", ...)` call from the service layer.
+
+#### Task 8 follow-up (test coverage) ✅
+
+- [x] `tests/runtime/test_model_configs_api.py` extended with API-layer coverage for `POST /api/model-configs/{id}/test`:
+  - `test_test_connection_requires_admin` — no `X-Admin-Token` → 401
+  - `test_test_connection_missing_config` — unknown id → 404 with `code=model_config_not_found`
+  - `test_test_connection_success` — monkeypatches `model_config_service.test_model_connection` to return `ok=True, latency_ms=37`; no LLM contact
+  - `test_test_connection_failure_redacts_secrets` — monkeypatch returns a failure with pre-sanitized message; asserts no `sk-glm-secret`, `bigmodel`, or `openai` substrings leak through the HTTP body
+- **Verification**: `pytest backend/tests/` → 73 passed, 16 skipped; `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass.
+
 ### Task 7: Chat Session + Streaming Engine
 
 - [ ] `POST /api/sessions` — create session bound to an agent, load agent's system prompt + skills + MCP tools into session context
