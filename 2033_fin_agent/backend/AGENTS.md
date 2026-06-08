@@ -73,18 +73,35 @@ api/ → services/ → adapters/ → external systems
 ## Configuration
 
 All config via env vars, loaded by `app/core/config.py` (Pydantic Settings).
+Env vars are split by lifecycle: the FastAPI runtime only depends on a
+minimal set, and importer / migration tooling read their own inputs directly
+(not through `Settings`).
 
 ```python
-# Required env vars
+# Runtime required — uvicorn app.main:app fails to start without these
 SUPABASE_URL: str
 SUPABASE_SERVICE_KEY: str
-LLM_BASE_URL: str          # e.g., https://open.bigmodel.cn/api/paas/v4
-LLM_API_KEY: str
-LLM_MODEL: str             # e.g., glm-5
-UPSTREAM_PLUGINS_PATH: str # Absolute path to the upstream plugins/ directory (set per environment)
-INTERNAL_ADMIN_TOKEN: str  # Protects write/sensitive endpoints in Phase 1
+INTERNAL_ADMIN_TOKEN: str  # Protects write / sensitive endpoints in Phase 1
 
-# Optional
+# Importer-only required — read by app/importers/_cli_common.py,
+# NOT by the FastAPI runtime. Set when running
+# ``python -m app.importers.import_*``; the importer fails clearly with
+# MissingUpstreamPathError if it is missing or points at a non-directory.
+UPSTREAM_PLUGINS_PATH: str  # Absolute path to upstream plugins/ directory
+
+# Migration-only required — used by psql / supabase-cli for schema
+# migrations. The FastAPI runtime does NOT read it.
+SUPABASE_DB_URL: str
+
+# Legacy optional — Phase 1 originally read the LLM endpoint here; Task 8
+# moved the source of truth to the ``model_configs`` Supabase table. Kept
+# optional for backward-compatible local setups and out-of-lifecycle
+# scripts. The FastAPI runtime does NOT read these.
+LLM_BASE_URL: str | None
+LLM_API_KEY: str | None
+LLM_MODEL: str | None
+
+# Optional runtime tuning
 LOG_LEVEL: str = "INFO"
 CORS_ORIGINS: str = "http://localhost:3000"
 ```

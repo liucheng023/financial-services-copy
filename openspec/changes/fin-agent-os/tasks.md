@@ -169,6 +169,25 @@ Phase 2 mitigation (to revisit when admin UX gets richer or when multi-tenant ad
   - `test_test_connection_failure_redacts_secrets` — monkeypatch returns a failure with pre-sanitized message; asserts no `sk-glm-secret`, `bigmodel`, or `openai` substrings leak through the HTTP body
 - **Verification**: `pytest backend/tests/` → 73 passed, 16 skipped; `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass.
 
+#### Task 4 follow-up — Config contract cleanup v2 ✅
+
+Tightens the env-var lifecycle contract introduced in Task 4 so that the
+FastAPI runtime, importer CLIs, and migration tooling each fail (or succeed)
+for the right reasons. Companion to the earlier LLM_* legacy-optional move.
+
+- [x] `app/core/config.py`: `UPSTREAM_PLUGINS_PATH` removed from `Settings` entirely. It is an importer/operator input and was never read by any request handler; keeping it as a required `Settings` field meant `uvicorn app.main:app` refused to start during runtime-only smoke (Gate 7A) and forced operators to supply a meaningless placeholder. The Settings docstring now explicitly enumerates Runtime required / Importer-only / Migration-only / Legacy optional.
+- [x] `app/importers/_cli_common.py` continues to be the single reader of `UPSTREAM_PLUGINS_PATH` (via `os.environ.get` + `MissingUpstreamPathError`); importer behavior is unchanged — `python -m app.importers.import_*` still exits status 2 with a clear message when the env var is missing or points at a non-directory.
+- [x] `tests/runtime/conftest.py`: `REQUIRED_ENV` no longer sets a placeholder `UPSTREAM_PLUGINS_PATH`; both env fixtures `monkeypatch.delenv("UPSTREAM_PLUGINS_PATH")` so a developer's real `.env` cannot leak the var into runtime tests.
+- [x] `tests/runtime/test_config.py`: new `test_settings_load_without_upstream_plugins_path` (Settings loads cleanly with `UPSTREAM_PLUGINS_PATH` unset and the attribute is no longer present); `test_missing_required_env_raises_clear_validation_error` updated so `UPSTREAM_PLUGINS_PATH` is now in the negative set (must NOT appear in the missing-required error message). SecretStr-no-leak invariants and the `LLM_API_KEY` SecretStr-when-set test are unchanged.
+- [x] `backend/.env.example`: split into four clearly labeled blocks — Runtime required (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `INTERNAL_ADMIN_TOKEN`), Importer-only required (`UPSTREAM_PLUGINS_PATH`, commented), Migration-only required (`SUPABASE_DB_URL`, commented), Legacy optional (`LLM_*`, commented).
+- [x] `backend/AGENTS.md`: Configuration section rewritten with the same four-lane structure. `UPSTREAM_PLUGINS_PATH` is documented as importer-only and `SUPABASE_DB_URL` as migration-only; neither blocks the FastAPI runtime.
+- **Outcome**:
+  - Runtime required env: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `INTERNAL_ADMIN_TOKEN`
+  - Importer-only env: `UPSTREAM_PLUGINS_PATH` (read by `_cli_common.resolve_upstream_root()`)
+  - Migration-only env: `SUPABASE_DB_URL` (consumed by psql / supabase-cli, not by FastAPI)
+  - Legacy optional env: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (model_configs Supabase table is the runtime source of truth)
+- **Verification**: `pytest backend/tests/runtime/test_config.py` pass; `pytest backend/tests/` → 76 passed, 16 skipped; `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass.
+
 ### Task 7: Chat Session + Streaming Engine
 
 - [ ] `POST /api/sessions` — create session bound to an agent, load agent's system prompt + skills + MCP tools into session context

@@ -22,17 +22,25 @@ def test_settings_load_without_legacy_llm_env(env_setup) -> None:
     assert s.LLM_MODEL is None
 
 
+def test_settings_load_without_upstream_plugins_path(env_setup) -> None:
+    from app.core.config import Settings, get_settings
+
+    s = get_settings()
+    assert isinstance(s, Settings)
+    assert not hasattr(s, "UPSTREAM_PLUGINS_PATH")
+
+
 def test_missing_required_env_raises_clear_validation_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.core.config import Settings, reset_settings_cache
+    from app.core.config import _build_settings, reset_settings_cache
 
     reset_settings_cache()
     for k in (
         "SUPABASE_URL",
         "SUPABASE_SERVICE_KEY",
-        "UPSTREAM_PLUGINS_PATH",
         "INTERNAL_ADMIN_TOKEN",
+        "UPSTREAM_PLUGINS_PATH",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_MODEL",
@@ -40,10 +48,11 @@ def test_missing_required_env_raises_clear_validation_error(
         monkeypatch.delenv(k, raising=False)
 
     with pytest.raises(Exception) as ei:
-        Settings()  # type: ignore[call-arg]
+        _build_settings()
     msg = str(ei.value)
     assert "SUPABASE_URL" in msg
     assert "INTERNAL_ADMIN_TOKEN" in msg
+    assert "UPSTREAM_PLUGINS_PATH" not in msg
     assert "LLM_BASE_URL" not in msg
     assert "LLM_API_KEY" not in msg
     assert "LLM_MODEL" not in msg
@@ -73,7 +82,6 @@ def test_llm_api_key_remains_secret_when_set(
     reset_settings_cache()
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "non-leaky-secret-aaa")
-    monkeypatch.setenv("UPSTREAM_PLUGINS_PATH", "/tmp/u")
     monkeypatch.setenv("INTERNAL_ADMIN_TOKEN", "non-leaky-secret-bbb")
     monkeypatch.setenv("LLM_API_KEY", "llm-key-secret-ccc")
 
@@ -87,17 +95,24 @@ def test_llm_api_key_remains_secret_when_set(
 def test_secret_str_not_in_validation_error_when_one_field_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.core.config import Settings, reset_settings_cache
+    from app.core.config import (
+        SettingsValidationError,
+        _build_settings,
+        reset_settings_cache,
+    )
 
     reset_settings_cache()
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "non-leaky-secret-zzz")
-    monkeypatch.setenv("UPSTREAM_PLUGINS_PATH", "/tmp/u")
+    monkeypatch.delenv("UPSTREAM_PLUGINS_PATH", raising=False)
     monkeypatch.delenv("INTERNAL_ADMIN_TOKEN", raising=False)
 
-    with pytest.raises(Exception) as ei:
-        Settings()  # type: ignore[call-arg]
-    assert "non-leaky-secret-zzz" not in str(ei.value)
+    with pytest.raises(SettingsValidationError) as ei:
+        _build_settings()
+    err = str(ei.value)
+    assert "INTERNAL_ADMIN_TOKEN" in err
+    assert "non-leaky-secret-zzz" not in err
+    assert "input_value" not in err
 
 
 def test_supabase_db_url_is_optional_and_absent_by_default(env_setup) -> None:
