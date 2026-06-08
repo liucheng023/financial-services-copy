@@ -81,9 +81,18 @@ When importing into Supabase, we treat `vertical-plugins/.../skills/` as canonic
 - **Chat endpoints** (POST /api/sessions, POST /api/sessions/{id}/messages) → public in Phase 1; sessions are anonymous (no user_id). Phase 2 will tie sessions to authenticated users.
 - **No login UI in Phase 1.** No Supabase Auth. No JWT validation. No RLS.
 
-The `INTERNAL_ADMIN_TOKEN` is set in deploy env (Fly.io secrets) and shared out-of-band with operators.
+### `INTERNAL_ADMIN_TOKEN` — explicit contract
 
-Phase 2 will introduce Supabase Auth + JWT + RLS + per-user session ownership. Phase 1 schema MUST include nullable `user_id` columns on `chat_sessions` so Phase 2 can backfill without migration pain.
+The contract is intentionally narrow so it cannot be repurposed:
+
+1. **Phase 1 only.** Deleted in Phase 2 along with `require_admin_token`.
+2. **Internal operator/admin API guard.** Its job is to keep accidental writes out of `/api/import/*`, `/api/mcp-servers`, and `/api/model-configs` during MVP.
+3. **Server-side deployment secret.** Lives in `backend/.env` locally and in Fly.io secrets (or equivalent) in production. Shared out-of-band with operators only.
+4. **NOT a user authentication mechanism.** No user identity is associated with the token.
+5. **NOT OAuth, NOT JWT, NOT a session token, NOT RBAC.** A single shared bearer-style secret.
+6. **MUST NOT be exposed to ordinary end-user clients.** Public marketing pages, the agent marketplace, and the chat UI must never see it.
+7. **MUST NOT be persisted long-term by ordinary end-user frontends.** Any UI that lets an operator paste this token is by definition an **internal operator tool**, not a public end-user UI. If a Phase 1 admin/settings page stores the token in `localStorage` as a dev/MVP convenience, that page must be scoped, documented, and access-restricted as operator-only — never linked from the public end-user surface and never deployed as a public route.
+8. **Phase 2 replacement.** Supabase Auth (JWT in `Authorization: Bearer <token>`) plus roles/RBAC and Postgres RLS. `INTERNAL_ADMIN_TOKEN` and `require_admin_token` are removed. The nullable `user_id` columns on `chat_sessions` in the Phase 1 schema exist specifically to enable Phase 2 backfill without a migration break.
 
 ## Phase 1 Scope (MVP)
 

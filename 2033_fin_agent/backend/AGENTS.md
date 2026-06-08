@@ -108,6 +108,18 @@ CORS_ORIGINS: str = "http://localhost:3000"
 
 NEVER hardcode any of these. NEVER commit `.env`.
 
+### `INTERNAL_ADMIN_TOKEN` — auth contract (Phase 1 only)
+
+`INTERNAL_ADMIN_TOKEN` is the Phase 1 internal operator/admin API guard. Implemented in `app/core/deps.py::require_admin_token`. Its scope is intentionally narrow:
+
+- **Lifecycle**: Phase 1 only. Removed in Phase 2.
+- **Identity**: Internal operator/admin API guard. NOT a user authentication mechanism.
+- **Storage**: Server-side deployment secret only — `backend/.env` locally, Fly.io secrets (or equivalent) in production. Shared out-of-band with operators only.
+- **Transport**: Sent as the `X-Admin-Token` request header to admin-protected endpoints. Validated in constant time via `hmac.compare_digest`.
+- **NOT**: OAuth, NOT JWT, NOT a session token, NOT RBAC, NOT a user identity.
+- **MUST NOT** be exposed to or persisted by ordinary end-user clients. Any UI that lets an operator paste this token is by definition an **internal operator tool**, not a public end-user UI.
+- **Phase 2 plan**: Supabase Auth (JWT in `Authorization: Bearer <token>`) plus roles/RBAC and Postgres RLS. `INTERNAL_ADMIN_TOKEN` and `require_admin_token` are deleted; per-user `user_id` columns (already nullable on `chat_sessions` in the Phase 1 schema) become required and are enforced via RLS.
+
 ## API Conventions
 
 - **REST + SSE for streaming**: Plain JSON for CRUD, Server-Sent Events for chat streaming

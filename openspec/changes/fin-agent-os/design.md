@@ -170,7 +170,7 @@ app/
 ├── mcp-servers/page.tsx         # MCP management
 ├── history/page.tsx             # Chat history
 └── admin/
-    └── settings/page.tsx        # Model config + admin token setting
+    └── settings/page.tsx        # Model config + admin token entry (internal operator-only tool, see Decision 7)
 ```
 
 对话页面组件：
@@ -188,7 +188,7 @@ ChatPage (client component)
 
 流式接收：使用 `fetch` + `ReadableStream` 解析 SSE（非原生 `EventSource`，因为聊天端点是 POST）。
 
-Auth: Phase 1 无登录 UI。Admin 页面通过 `X-Admin-Token` 请求头保护写端点。
+Auth: Phase 1 无端用户认证。Admin/operator-only 页面通过 `X-Admin-Token` 请求头调用受保护写端点。详见 Decision 7。`INTERNAL_ADMIN_TOKEN` 是 Phase 1 临时的内部 operator/admin API guard，不是用户认证机制，禁止用于公开端用户界面。Phase 2 改用 Supabase Auth + RBAC + RLS。
 
 ### Decision 6: 后端 API 设计
 
@@ -244,7 +244,20 @@ POST   /api/import/mcps         # 仅导入 MCP 配置
 - Phase 1 是内部 MVP，做完整 auth 拖慢交付且会因 Supabase Auth 集成踩坑
 - admin token 足够阻挡误操作（重新导入、修改 MCP 配置）
 - `chat_sessions` 表 schema 必须包含 `user_id UUID NULL`，Phase 2 才能无痛迁移
-- 部署时 `INTERNAL_ADMIN_TOKEN` 通过 Fly.io secrets 注入，前端 admin 页面让运维输入后存 localStorage
+
+**`INTERNAL_ADMIN_TOKEN` 契约（明确边界，防止被误解为用户认证）**：
+
+1. **Phase 1 only.** Phase 2 切到 Supabase Auth 时 `require_admin_token` 和该 env 一并删除。
+2. **内部 operator/admin API guard。** 不是用户认证机制，不携带用户身份。
+3. **Server-side 部署 secret。** 本地放 `backend/.env`，生产用 Fly.io secrets（或同类 secret manager），仅以 out-of-band 渠道分发给运维人员。
+4. **不是 OAuth / 不是 JWT / 不是 session token / 不是 RBAC。** 单一共享 bearer-style 密钥。
+5. **不可暴露给普通端用户客户端。** 公开 marketplace、Agent 详情页、聊天页绝不能持有该 token。
+6. **不可被普通端用户前端长期持有。** Phase 1 的 admin/settings 页面（`/admin/settings`）若让运维粘贴 token 并临时缓存于 `localStorage`，**仅作为 internal operator/MVP dev convenience**，限制条件：
+   - 必须以 operator-only internal tool 文档化（路由不上 sitemap，不出现在公开导航）
+   - 不能用作生产公开用户环境的认证入口
+   - 部署可见性限制（例如 Vercel preview / 仅内网可达 / 路由级 robots noindex），不可作为公开可达页面
+   - 更长期/合规化方案：Phase 2 改为 Supabase Auth + admin role + RLS 后，此页面整体替换为受 admin role 保护的真正后台
+7. **Phase 2 替换。** Supabase Auth (`Authorization: Bearer <JWT>`) + 角色/RBAC + Postgres RLS。
 
 ### Decision 8: SSE 事件协议
 

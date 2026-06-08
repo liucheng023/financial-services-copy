@@ -13,7 +13,7 @@ This is `frontend/AGENTS.md`. Read root `../AGENTS.md` first.
   - URL state: `nuqs` or native `useSearchParams`
 - **Forms**: react-hook-form + zod validation
 - **API client**: Generated from backend OpenAPI via `openapi-typescript`
-- **Auth (Phase 1)**: NONE. No login UI, no Supabase Auth in Phase 1. Admin pages call write endpoints with `X-Admin-Token` header (token entered in admin settings, stored in localStorage). Phase 2 will introduce Supabase Auth via `@supabase/ssr`.
+- **Auth (Phase 1)**: NONE for end users. No login UI, no Supabase Auth in Phase 1. The only protected endpoints are the internal operator/admin APIs (imports, MCP config, model config), which are guarded by the `X-Admin-Token` header backed by the server-side `INTERNAL_ADMIN_TOKEN` deployment secret. **`INTERNAL_ADMIN_TOKEN` is NOT a user-auth mechanism, NOT OAuth, NOT JWT, and MUST NOT be exposed to ordinary end-user clients.** Any admin/settings page that lets an operator paste this token (and optionally caches it in `localStorage` purely as a dev/MVP convenience) is an **internal operator-only tool** — it must be access-restricted, never linked from the public end-user surface (marketplace, chat), and never relied on for production end-user flows. Phase 2 replaces all of this with Supabase Auth (`@supabase/ssr`) + RBAC + RLS and removes the admin-token surface entirely.
 - **Streaming**: `fetch` + `ReadableStream` for SSE (NOT native `EventSource`; our chat endpoint is POST)
 - **Package manager**: pnpm
 - **Lint**: ESLint + Prettier

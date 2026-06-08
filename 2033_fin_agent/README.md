@@ -35,7 +35,7 @@ B2B web platform for financial expert agents. Asia-primary. Phase 1 MVP.
            └──────────────┘
 ```
 
-Phase 1: no end-user auth. Admin endpoints protected by `X-Admin-Token`. Phase 2 will introduce Supabase Auth.
+Phase 1: no end-user auth. Admin/operator-only endpoints are guarded by an internal `X-Admin-Token` header (server-side deployment secret, NOT a user-auth mechanism). Phase 2 will introduce Supabase Auth + RBAC + RLS and remove the admin-token guard. See [AGENTS.md "Auth Policy"](./AGENTS.md#auth-policy-phase-1).
 
 ## Phase 1 Goal
 

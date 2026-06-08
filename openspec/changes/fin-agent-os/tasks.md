@@ -188,6 +188,33 @@ for the right reasons. Companion to the earlier LLM_* legacy-optional move.
   - Legacy optional env: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (model_configs Supabase table is the runtime source of truth)
 - **Verification**: `pytest backend/tests/runtime/test_config.py` pass; `pytest backend/tests/` → 76 passed, 16 skipped; `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass.
 
+#### Task 4 follow-up — Auth contract cleanup ✅
+
+Documentation-only pass that locks down what `INTERNAL_ADMIN_TOKEN` /
+`X-Admin-Token` actually is, before any frontend work or Phase 2 auth design
+starts. No code/behavior change beyond the `app/core/deps.py` docstring.
+
+- [x] `app/core/deps.py`: module docstring + `require_admin_token` docstring spell out the Phase 1-only contract — internal operator/admin API guard, server-side deployment secret, NOT a user-auth mechanism, NOT OAuth, NOT JWT, NOT a session token, deleted in Phase 2.
+- [x] `backend/.env.example`: `INTERNAL_ADMIN_TOKEN` annotated with the same contract inline, so anyone copying the template sees the boundary before pasting a value.
+- [x] `backend/AGENTS.md`: new "INTERNAL_ADMIN_TOKEN — auth contract (Phase 1 only)" subsection under Configuration enumerating lifecycle, identity, storage, transport, exclusions, and Phase 2 replacement.
+- [x] `2033_fin_agent/AGENTS.md`: Auth Policy block expanded with explicit 8-point `INTERNAL_ADMIN_TOKEN` contract; covers the operator-tool-vs-public-UI distinction and the Phase 2 Supabase Auth + RBAC + RLS replacement plan.
+- [x] `2033_fin_agent/README.md`: one-line summary tightened so the very first auth mention frames it as server-side operator secret, not a user-auth mechanism, with a link to the full policy.
+- [x] `2033_fin_agent/frontend/AGENTS.md`: Auth (Phase 1) line rewritten — token is internal operator/admin secret; any admin/settings page that caches it in `localStorage` is an internal operator-only tool (access-restricted, not linked from public surfaces, not for production end-user flows).
+- [x] `openspec/changes/fin-agent-os/design.md`:
+  - Frontend route comment for `admin/settings/page.tsx` marked as internal operator-only.
+  - Auth section between routes block and Decision 6 reframed (no longer says "Admin 页面通过 X-Admin-Token 保护写端点" alone — adds operator-only + Phase 2 plan).
+  - Decision 7 gains an 8-point `INTERNAL_ADMIN_TOKEN` contract block; the old "前端 admin 页面让运维输入后存 localStorage" bullet is removed and replaced with a constrained 4-condition rule (operator-only doc, not for prod public UI, deploy-level access restriction, Phase 2 replacement).
+- **Outcome — auth contract summary**:
+  - Phase 1 only. Phase 2 deletes `INTERNAL_ADMIN_TOKEN` and `require_admin_token`.
+  - Internal operator/admin API guard. Not a user-auth mechanism.
+  - Server-side deployment secret (`backend/.env` locally, Fly.io secrets in prod). Shared out-of-band with operators only.
+  - Sent as `X-Admin-Token`. Validated in constant time via `hmac.compare_digest`.
+  - Never OAuth, JWT, session token, RBAC, or user identity.
+  - Must not be exposed to ordinary end-user clients.
+  - Any UI that stores it (incl. `localStorage`) is an internal operator tool — access-restricted, not on public navigation, not on the production public-user path.
+  - Phase 2: Supabase Auth (JWT in `Authorization: Bearer ...`) + roles/RBAC + Postgres RLS; `chat_sessions.user_id` (currently nullable) becomes the per-user enforcement key.
+- **Verification**: `rg "INTERNAL_ADMIN_TOKEN|X-Admin-Token|localStorage" 2033_fin_agent/ openspec/changes/fin-agent-os/` re-read; no remaining description frames it as a user-auth mechanism or as a token for ordinary frontend users. `openspec validate fin-agent-os --strict` pass. `ruff check app/ tests/` clean (only `app/core/deps.py` docstring touched).
+
 ### Task 7: Chat Session + Streaming Engine
 
 - [ ] `POST /api/sessions` — create session bound to an agent, load agent's system prompt + skills + MCP tools into session context
