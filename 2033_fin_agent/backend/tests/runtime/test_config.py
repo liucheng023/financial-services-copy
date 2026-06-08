@@ -9,9 +9,17 @@ def test_settings_load_from_env(env_setup) -> None:
     s = get_settings()
     assert isinstance(s, Settings)
     assert s.SUPABASE_URL == "https://example.supabase.co"
-    assert s.LLM_MODEL == "glm-5-test"
     assert s.LOG_LEVEL == "INFO"
     assert s.cors_origin_list() == ["http://localhost:3000"]
+
+
+def test_settings_load_without_legacy_llm_env(env_setup) -> None:
+    from app.core.config import get_settings
+
+    s = get_settings()
+    assert s.LLM_BASE_URL is None
+    assert s.LLM_API_KEY is None
+    assert s.LLM_MODEL is None
 
 
 def test_missing_required_env_raises_clear_validation_error(
@@ -23,11 +31,11 @@ def test_missing_required_env_raises_clear_validation_error(
     for k in (
         "SUPABASE_URL",
         "SUPABASE_SERVICE_KEY",
+        "UPSTREAM_PLUGINS_PATH",
+        "INTERNAL_ADMIN_TOKEN",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_MODEL",
-        "UPSTREAM_PLUGINS_PATH",
-        "INTERNAL_ADMIN_TOKEN",
     ):
         monkeypatch.delenv(k, raising=False)
 
@@ -35,7 +43,10 @@ def test_missing_required_env_raises_clear_validation_error(
         Settings()  # type: ignore[call-arg]
     msg = str(ei.value)
     assert "SUPABASE_URL" in msg
-    assert "LLM_API_KEY" in msg
+    assert "INTERNAL_ADMIN_TOKEN" in msg
+    assert "LLM_BASE_URL" not in msg
+    assert "LLM_API_KEY" not in msg
+    assert "LLM_MODEL" not in msg
 
 
 def test_secret_str_does_not_leak_in_repr_or_str(env_setup) -> None:
@@ -43,19 +54,34 @@ def test_secret_str_does_not_leak_in_repr_or_str(env_setup) -> None:
 
     s = get_settings()
     plaintext_admin = "admin-token-test-value"
-    plaintext_llm = "llm-key-test-value"
     plaintext_supabase = "service-key-test-value"
 
     assert plaintext_admin not in repr(s)
     assert plaintext_admin not in str(s)
-    assert plaintext_llm not in repr(s)
-    assert plaintext_llm not in str(s)
     assert plaintext_supabase not in repr(s)
     assert plaintext_supabase not in str(s)
 
     assert s.INTERNAL_ADMIN_TOKEN.get_secret_value() == plaintext_admin
-    assert s.LLM_API_KEY.get_secret_value() == plaintext_llm
     assert s.SUPABASE_SERVICE_KEY.get_secret_value() == plaintext_supabase
+
+
+def test_llm_api_key_remains_secret_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import get_settings, reset_settings_cache
+
+    reset_settings_cache()
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "non-leaky-secret-aaa")
+    monkeypatch.setenv("UPSTREAM_PLUGINS_PATH", "/tmp/u")
+    monkeypatch.setenv("INTERNAL_ADMIN_TOKEN", "non-leaky-secret-bbb")
+    monkeypatch.setenv("LLM_API_KEY", "llm-key-secret-ccc")
+
+    s = get_settings()
+    assert s.LLM_API_KEY is not None
+    assert s.LLM_API_KEY.get_secret_value() == "llm-key-secret-ccc"
+    assert "llm-key-secret-ccc" not in repr(s)
+    assert "llm-key-secret-ccc" not in str(s)
 
 
 def test_secret_str_not_in_validation_error_when_one_field_is_invalid(
@@ -66,9 +92,6 @@ def test_secret_str_not_in_validation_error_when_one_field_is_invalid(
     reset_settings_cache()
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "non-leaky-secret-zzz")
-    monkeypatch.setenv("LLM_BASE_URL", "https://example.llm/v1")
-    monkeypatch.setenv("LLM_API_KEY", "non-leaky-secret-zzz")
-    monkeypatch.setenv("LLM_MODEL", "glm-5-test")
     monkeypatch.setenv("UPSTREAM_PLUGINS_PATH", "/tmp/u")
     monkeypatch.delenv("INTERNAL_ADMIN_TOKEN", raising=False)
 

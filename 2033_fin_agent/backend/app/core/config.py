@@ -24,11 +24,17 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str = Field(min_length=1)
     SUPABASE_SERVICE_KEY: SecretStr = Field(min_length=1)
-    LLM_BASE_URL: str = Field(min_length=1)
-    LLM_API_KEY: SecretStr = Field(min_length=1)
-    LLM_MODEL: str = Field(min_length=1)
     UPSTREAM_PLUGINS_PATH: str = Field(min_length=1)
     INTERNAL_ADMIN_TOKEN: SecretStr = Field(min_length=1)
+
+    # Legacy optional. Phase 1 originally read the LLM endpoint from these env
+    # vars; Task 8 moved the source of truth to the ``model_configs`` Supabase
+    # table (selected via ``is_default``). Kept as optional to avoid breaking
+    # existing local ``.env`` files and to allow scripts that probe the LLM
+    # outside the request lifecycle. Nothing in the FastAPI runtime reads them.
+    LLM_BASE_URL: str | None = None
+    LLM_API_KEY: SecretStr | None = None
+    LLM_MODEL: str | None = None
 
     # Optional. Postgres connection string used by migration / direct-SQL tooling
     # (psql, supabase-cli). The FastAPI runtime never reads it — it talks PostgREST
