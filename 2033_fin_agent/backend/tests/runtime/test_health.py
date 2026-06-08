@@ -32,3 +32,5 @@ def test_openapi_includes_api_routes(env_setup) -> None:
     assert "/api/agents" in paths
     assert "/api/verticals" in paths
     assert "/api/mcp-servers" in paths
+    assert "/api/model-configs" in paths
+    assert "/api/model-configs/default" in paths

@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.agents import router as agents_router
 from .api.health import router as health_router
 from .api.mcp import router as mcp_router
+from .api.model_configs import router as model_configs_router
 from .api.verticals import router as verticals_router
 from .core.config import get_settings
 
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app.include_router(agents_router)
     app.include_router(verticals_router)
     app.include_router(mcp_router)
+    app.include_router(model_configs_router)
     return app
 
 

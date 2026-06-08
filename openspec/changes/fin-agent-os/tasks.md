@@ -99,6 +99,8 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 
 ## Batch 2: Backend Core
 
+> **Execution order note (2026-06):** Task 8 (Model Config API) is executed **before** Task 7 (Chat Session + Streaming Engine). The chat runtime in Task 7 needs a stable `default` model config and a tested LLM connection-test boundary; building Task 8 first lets Task 7 read the configured LLM through a known surface instead of reading env vars directly. Numbering is preserved for spec stability; only the implementation order changes.
+
 ### Task 5: Read-only APIs (Agents, Verticals, MCPs) ✅
 
 - [x] `GET /api/agents` (list with skill_count, mcp_count)
@@ -133,6 +135,21 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 - **Deliverable**: Given an agent slug, MCP adapter returns a list of OpenAI function definitions + can execute tool calls
 - **Verification**: 8 mocked adapter/service tests cover mcp-use config construction, OpenAI function schema exposure, tool execution, unknown tool handling, exception redaction, graceful initialization degradation, Supabase agent→MCP config loading, and service wrapper delegation. `pytest backend/tests/` → 71/71 pass; `ruff check` clean; `openspec validate fin-agent-os --strict` pass. `pyright` attempted in Docker but timed out installing bundled prebuilt node, same sandbox limitation as prior tasks.
 
+### Task 8: Model Config API ✅
+
+- [x] `GET /api/model-configs` (list with `has_api_key`, never plaintext)
+- [x] `GET /api/model-configs/default` (returns the active config; 404 with RFC 7807 `model_config_not_found` when none set)
+- [x] `POST /api/model-configs` (admin-protected, create config with `base_url`, `api_key`, `model_name`, `temperature`, `max_tokens`, `is_default`)
+- [x] `PUT /api/model-configs/{id}` (admin-protected, partial update; promoting to default demotes all other rows)
+- [x] `POST /api/model-configs/{id}/test` (admin-protected, calls the LLM via an injectable adapter — no real LLM hit in tests)
+- [x] `app/models/schemas.py`: `ModelConfigListItem`, `ModelConfigDetail`, `ModelConfigCreateRequest`, `ModelConfigUpdateRequest`, `ModelConfigTestResult`
+- [x] `app/adapters/llm_adapter.py`: `LLMConnectionConfig`, `LLMConnectionResult`, `ConnectionTester` Protocol-style alias, `http_test_openai_compatible_connection` (default httpx implementation), `_sanitize_error` redacts `api_key` + `base_url` from error strings
+- [x] `app/services/model_config_service.py`: list / get / get_default / create / update / `test_model_connection(tester=...)`; default-exclusivity enforced via `_clear_other_defaults` (`update(is_default=False).eq("is_default", True).neq("id", new_id)` then write the new default)
+- [x] `app/api/model_configs.py`: 5 routes; POST/PUT/test guarded by `Depends(require_admin_token)`; GETs public; 404s use the shared RFC 7807 body
+- [x] Secret policy mirrors `mcp_servers`: list returns `has_api_key`; detail returns `masked_api_key` (`****<last4>`); plaintext `api_key` never appears in any response (asserted by `assert "sk-..." not in resp.text` across 4 tests)
+- **Deliverable**: Admin can create a GLM-5 config via API, test the connection, mark it default; chat runtime (Task 7) will read the default through `get_default_model_config`.
+- **Verification**: `pytest backend/tests/` → 69 passed, 16 skipped (importer integration tests requiring `UPSTREAM_PLUGINS_PATH`); `ruff check app/ tests/` clean; `openspec validate fin-agent-os --strict` pass. `test_model_connection` is exercised through an injected `tester=` callable — **no real LLM endpoint is contacted in unit or integration tests**. `pyright` not executed in sandbox (same prebuilt-node download limit hit on Tasks 4/5/6); CI to run it.
+
 ### Task 7: Chat Session + Streaming Engine
 
 - [ ] `POST /api/sessions` — create session bound to an agent, load agent's system prompt + skills + MCP tools into session context
@@ -146,15 +163,7 @@ Scope intentionally narrow: runtime spine + secret-safe config + Supabase bounda
 - **Deliverable**: Full chat loop works: create session → send message → receive streaming response with tool calls
 - **Verification**: curl POST creates session; curl POST sends message; SSE stream shows token/tool_call/tool_result/done events; messages persisted in DB
 
-### Task 8: Model Config API
-
-- [ ] `GET /api/model-configs` (list)
-- [ ] `POST /api/model-configs` (admin-protected, create config with base_url, api_key, model_name, temperature, max_tokens)
-- [ ] `PUT /api/model-configs/{id}` (admin-protected, update)
-- [ ] `POST /api/model-configs/{id}/test` — send a trivial message to verify the LLM endpoint works
-- [ ] `GET /api/model-configs/default` — return the currently active model config
-- **Deliverable**: Can configure GLM-5 endpoint, test connection, and chat uses the configured model
-- **Verification**: Create GLM-5 config via API → test returns 200 → create session → send message → response comes from GLM-5
+### Task 8: Model Config API ✅ (see block above)
 
 ## Batch 3: Frontend (After API Contract Stable)
 

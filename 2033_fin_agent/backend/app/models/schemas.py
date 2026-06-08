@@ -80,3 +80,61 @@ class McpServerUpdateRequest(BaseModel):
     description: str | None = None
     api_key: str | None = None
     tool_name_map: dict[str, str] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Model configs (Task 8)
+#
+# Secret policy mirrors mcp_servers: the raw ``api_key`` column is plain TEXT
+# in Phase 1 (see supabase/migrations/0001_initial_schema.sql) but MUST NEVER
+# leave the backend in plaintext. List endpoints expose ``has_api_key``;
+# detail endpoints additionally expose ``masked_api_key`` (``****<last4>``).
+# ---------------------------------------------------------------------------
+
+
+class ModelConfigListItem(BaseModel):
+    id: str
+    slug: str
+    name: str
+    base_url: str
+    model_name: str
+    is_default: bool = False
+    has_api_key: bool = False
+
+
+class ModelConfigDetail(ModelConfigListItem):
+    temperature: float = 0.70
+    max_tokens: int | None = None
+    masked_api_key: str | None = None
+
+
+class ModelConfigCreateRequest(BaseModel):
+    slug: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    api_key: str = Field(min_length=1)
+    model_name: str = Field(min_length=1)
+    temperature: float = 0.70
+    max_tokens: int | None = None
+    is_default: bool = False
+
+
+class ModelConfigUpdateRequest(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model_name: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    is_default: bool | None = None
+
+
+class ModelConfigTestResult(BaseModel):
+    # ``ok`` is the only field the frontend should branch on. ``error_code``
+    # is a stable short string (e.g. ``connection_error``); ``error_message``
+    # is a human-readable summary with provider/url/api_key scrubbed by the
+    # adapter (see llm_adapter._sanitize_error).
+    ok: bool
+    latency_ms: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
