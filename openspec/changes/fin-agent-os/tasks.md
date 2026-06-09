@@ -81,6 +81,8 @@ Split into two gates so we can ship the parsers + association dry-run independen
 
 ### Task 4: Backend Scaffold ✅
 
+> **Superseded note (historical context):** The original Task 4 config contract listed `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` and `UPSTREAM_PLUGINS_PATH` as part of `Settings`. This has been superseded by two follow-up cleanups documented below: (1) Task 8 made `LLM_*` **legacy optional** because the runtime LLM source of truth moved to the Supabase `model_configs` table read through `model_config_service`; (2) Task 4 follow-up "Config contract cleanup v2" removed `UPSTREAM_PLUGINS_PATH` from `Settings` entirely — it is now **importer-only** (read by `app/importers/_cli_common.py` via `os.environ`, never by FastAPI). The historical bullet below is preserved for change-log fidelity; consult `app/core/config.py` and `backend/AGENTS.md` "Configuration" for the current runtime contract.
+
 Scope intentionally narrow: runtime spine + secret-safe config + Supabase boundary + admin guard + Supabase smoke. The read-only `/api/agents` family stays in Task 5 so this gate is fully testable without Supabase credentials.
 
 - [x] `backend/pyproject.toml`: adds `fastapi`, `uvicorn[standard]`, `pydantic>=2.7`, `pydantic-settings`, `supabase>=2.7`, `httpx`; dev adds `pyright` to match `backend/AGENTS.md`

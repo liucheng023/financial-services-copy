@@ -67,8 +67,8 @@ When importing into Supabase, we treat `vertical-plugins/.../skills/` as canonic
 ## Forbidden Actions
 
 - Modifying upstream plugins (`$UPSTREAM_PLUGINS_PATH`) from within `2033_fin_agent/` — upstream is a read-only data source
-- Hardcoding the upstream path. Always read from `UPSTREAM_PLUGINS_PATH` env var
-- Hardcoding LLM provider names. Use config-driven `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`
+- Hardcoding the upstream path. Always read from `UPSTREAM_PLUGINS_PATH` env var (importer-only; not part of FastAPI runtime config)
+- Hardcoding LLM provider/model names in code. The runtime source of truth for the LLM endpoint is the Supabase `model_configs` table; backend code must read the default model through the `model_config_service` / adapter boundary (`POST /api/model-configs` + `is_default`). `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` env vars exist only as **legacy optional** for back-compat with pre-Task-8 dev `.env` files and out-of-lifecycle scripts — never wire new runtime code paths through them.
 - Hardcoding MCP server URLs. Read from imported `mcp_servers` table
 - Skipping the importer and writing agent/skill content directly to Supabase via UI
 
