@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..adapters.llm_adapter import (
@@ -18,6 +19,23 @@ from .agent_service import _mask_api_key
 
 if TYPE_CHECKING:
     from supabase import AsyncClient
+
+
+# ``RuntimeModelConfig`` is the SERVER-ONLY shape for the LLM endpoint. Unlike
+# ``ModelConfigDetail`` (which masks ``api_key``), this carries the raw
+# plaintext key for use inside the request lifecycle when constructing an
+# ``LLMStreamConfig`` / ``LLMConnectionConfig``. It MUST NEVER be returned
+# from an HTTP handler, serialized into a response body, or logged. The only
+# legitimate consumer is ``chat_service`` (and any future runtime caller that
+# needs to talk to the LLM provider).
+@dataclass(frozen=True)
+class RuntimeModelConfig:
+    id: str
+    base_url: str
+    api_key: str
+    model_name: str
+    temperature: float = 0.70
+    max_tokens: int | None = None
 
 
 async def list_model_configs(client: AsyncClient) -> list[ModelConfigListItem]:
@@ -74,6 +92,38 @@ async def get_default_model_config(
     if not row:
         return None
     return _detail_from_row(row)
+
+
+async def get_runtime_model_config(
+    client: AsyncClient,
+    config_id: str | None = None,
+) -> RuntimeModelConfig | None:
+    """Server-only: load a model config with the raw plaintext ``api_key``
+    for runtime LLM calls. NEVER return the result from an HTTP handler.
+
+    Resolution: explicit ``config_id`` if given, else ``is_default=True``.
+    """
+    query = (
+        client.table("model_configs")
+        .select("id,base_url,api_key,model_name,temperature,max_tokens")
+    )
+    query = (
+        query.eq("id", config_id)
+        if config_id is not None
+        else query.eq("is_default", True)
+    )
+    resp = await query.maybe_single().execute()
+    row = resp.data
+    if not row:
+        return None
+    return RuntimeModelConfig(
+        id=str(row["id"]),
+        base_url=row["base_url"],
+        api_key=row["api_key"],
+        model_name=row["model_name"],
+        temperature=float(row.get("temperature", 0.70)),
+        max_tokens=row.get("max_tokens"),
+    )
 
 
 async def create_model_config(

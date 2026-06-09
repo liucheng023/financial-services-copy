@@ -225,7 +225,7 @@ starts. No code/behavior change beyond the `app/core/deps.py` docstring.
 - [ ] Implement context window management (system prompt + history + current; truncate oldest if over limit)
 - [ ] `GET /api/sessions` — list sessions
 - [ ] `GET /api/sessions/{id}` — session detail + message history
-- [ ] `DELETE /api/sessions/{id}` — delete session
+- ~~`DELETE /api/sessions/{id}`~~ — **Removed.** Anonymous Phase 1 sessions have no per-user ownership, so a public destructive endpoint is unsafe. Re-introduce only behind admin-token guard (or Phase 2 Auth + RLS) with ownership checks.
 - [ ] Persist all messages (user + assistant + tool_calls + tool_results) to `chat_messages`
 - **Deliverable**: Full chat loop works: create session → send message → receive streaming response with tool calls
 - **Verification**: curl POST creates session; curl POST sends message; SSE stream shows token/tool_call/tool_result/done events; messages persisted in DB

@@ -16,6 +16,7 @@ from ..models.schemas import (
     SessionDetail,
     SessionListItem,
 )
+from .model_config_service import get_runtime_model_config
 
 if TYPE_CHECKING:
     from supabase import AsyncClient
@@ -158,17 +159,7 @@ async def get_session(
     )
 
 
-async def delete_session(client: AsyncClient, session_id: str) -> bool:
-    existing = await _fetch_session_row(client, session_id)
-    if existing is None:
-        return False
-    await (
-        client.table("chat_sessions")
-        .delete()
-        .eq("id", session_id)
-        .execute()
-    )
-    return True
+
 
 
 async def prepare_stream(
@@ -192,7 +183,7 @@ async def prepare_stream(
     agent_row = agent_resp.data or {}
     system_prompt = agent_row.get("system_prompt", "")
 
-    model_row = await _fetch_runtime_model_config(
+    model_row = await get_runtime_model_config(
         client, session_row.get("model_config_id")
     )
     if model_row is None:
@@ -219,11 +210,11 @@ async def prepare_stream(
     messages.extend(history)
 
     config = LLMStreamConfig(
-        base_url=model_row["base_url"],
-        api_key=model_row["api_key"],
-        model_name=model_row["model_name"],
-        temperature=float(model_row.get("temperature", 0.70)),
-        max_tokens=model_row.get("max_tokens"),
+        base_url=model_row.base_url,
+        api_key=model_row.api_key,
+        model_name=model_row.model_name,
+        temperature=model_row.temperature,
+        max_tokens=model_row.max_tokens,
     )
 
     return _stream_with_persistence(
@@ -337,30 +328,6 @@ async def _fetch_session_row(
         client.table("chat_sessions")
         .select("*")
         .eq("id", session_id)
-        .maybe_single()
-        .execute()
-    )
-    return resp.data
-
-
-async def _fetch_runtime_model_config(
-    client: AsyncClient,
-    explicit_id: str | None,
-) -> dict[str, Any] | None:
-    if explicit_id:
-        resp = await (
-            client.table("model_configs")
-            .select("base_url,api_key,model_name,temperature,max_tokens")
-            .eq("id", explicit_id)
-            .maybe_single()
-            .execute()
-        )
-        if resp.data:
-            return resp.data
-    resp = await (
-        client.table("model_configs")
-        .select("base_url,api_key,model_name,temperature,max_tokens")
-        .eq("is_default", True)
         .maybe_single()
         .execute()
     )

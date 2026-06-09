@@ -223,18 +223,6 @@ def test_get_session_not_found(api_client: TestClient) -> None:
     assert resp.json()["detail"]["code"] == "session_not_found"
 
 
-def test_delete_session(api_client: TestClient) -> None:
-    resp = api_client.delete(f"/api/sessions/{EXISTING_SESSION_ID}")
-    assert resp.status_code == 204
-    assert api_client.fake_state["chat_sessions"] == []
-
-
-def test_delete_session_not_found(api_client: TestClient) -> None:
-    missing = "99999999-9999-9999-9999-999999999999"
-    resp = api_client.delete(f"/api/sessions/{missing}")
-    assert resp.status_code == 404
-
-
 def _parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
     for block in body.split("\n\n"):

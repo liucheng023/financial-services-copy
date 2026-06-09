@@ -83,21 +83,7 @@ async def get_session(
     return result
 
 
-@router.delete(
-    "/sessions/{session_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_session(
-    session_id: UUID,
-    client: AsyncClient = Depends(get_supabase),
-) -> None:
-    deleted = await chat_service.delete_session(client, str(session_id))
-    if not deleted:
-        raise _not_found(
-            "session_not_found",
-            "Session not found",
-            f"No chat session with id '{session_id}'.",
-        )
+
 
 
 @router.post("/sessions/{session_id}/messages")

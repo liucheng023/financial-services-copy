@@ -149,7 +149,10 @@ POST   /api/sessions                        # Create session bound to one agent
 POST   /api/sessions/{id}/messages          # Send user message, stream agent response via SSE
 GET    /api/sessions                        # List sessions (Phase 1: returns all, anonymous)
 GET    /api/sessions/{id}                   # Get session detail with full message history
-DELETE /api/sessions/{id}                   # Delete a session
+# DELETE /api/sessions/{id} — intentionally NOT exposed in Phase 1.
+# Anonymous chat sessions have no per-user ownership, so a destructive endpoint
+# would let any caller wipe any session. Re-introduce only behind admin-token
+# (or Phase 2 Supabase Auth + RLS) with explicit ownership checks.
 
 # Admin-protected write endpoints (require X-Admin-Token)
 POST   /api/import/all                      # Full re-import from $UPSTREAM_PLUGINS_PATH
