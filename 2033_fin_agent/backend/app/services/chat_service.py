@@ -189,7 +189,7 @@ async def prepare_stream(
     if model_row is None:
         raise NoDefaultModelError()
 
-    user_msg_resp = await (
+    await (
         client.table("chat_messages")
         .insert(
             {
@@ -200,14 +200,30 @@ async def prepare_stream(
         )
         .execute()
     )
-    user_msg = (user_msg_resp.data or [{}])[0]
-    user_message_id = str(user_msg.get("id", ""))
+
+    assistant_placeholder_resp = await (
+        client.table("chat_messages")
+        .insert(
+            {
+                "session_id": session_id,
+                "role": "assistant",
+                "content": "",
+            }
+        )
+        .execute()
+    )
+    assistant_row = (assistant_placeholder_resp.data or [{}])[0]
+    assistant_message_id = str(assistant_row.get("id", ""))
 
     history = await _load_history(client, session_id)
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-    messages.extend(history)
+    messages.extend(
+        {"role": m["role"], "content": m["content"]}
+        for m in history
+        if str(m.get("id", "")) != assistant_message_id
+    )
 
     config = LLMStreamConfig(
         base_url=model_row.base_url,
@@ -220,7 +236,7 @@ async def prepare_stream(
     return _stream_with_persistence(
         client=client,
         session_id=session_id,
-        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
         config=config,
         messages=messages,
         streamer=streamer or http_stream_chat_completion,
@@ -231,14 +247,14 @@ async def _stream_with_persistence(
     *,
     client: AsyncClient,
     session_id: str,
-    user_message_id: str,
+    assistant_message_id: str,
     config: LLMStreamConfig,
     messages: list[dict[str, Any]],
     streamer: ChatStreamer,
 ) -> AsyncIterator[str]:
     yield _sse(
         "message_start",
-        {"message_id": user_message_id, "session_id": session_id},
+        {"message_id": assistant_message_id, "session_id": session_id},
     )
 
     accumulated: list[str] = []
@@ -263,6 +279,12 @@ async def _stream_with_persistence(
         )
 
     if error_event is not None:
+        await (
+            client.table("chat_messages")
+            .update({"finish_reason": "error"})
+            .eq("id", assistant_message_id)
+            .execute()
+        )
         yield _sse(
             "error",
             {
@@ -275,20 +297,17 @@ async def _stream_with_persistence(
         return
 
     assistant_text = "".join(accumulated)
-    assistant_resp = await (
+    await (
         client.table("chat_messages")
-        .insert(
+        .update(
             {
-                "session_id": session_id,
-                "role": "assistant",
                 "content": assistant_text,
                 "finish_reason": finish_reason or "stop",
             }
         )
+        .eq("id", assistant_message_id)
         .execute()
     )
-    assistant_row = (assistant_resp.data or [{}])[0]
-    assistant_message_id = str(assistant_row.get("id", ""))
 
     yield _sse(
         "message_complete",
@@ -339,13 +358,17 @@ async def _load_history(
 ) -> list[dict[str, Any]]:
     resp = await (
         client.table("chat_messages")
-        .select("role,content")
+        .select("id,role,content")
         .eq("session_id", session_id)
         .order("created_at")
         .execute()
     )
     rows = resp.data or []
     return [
-        {"role": r["role"], "content": r.get("content") or ""}
+        {
+            "id": str(r.get("id", "")),
+            "role": r["role"],
+            "content": r.get("content") or "",
+        }
         for r in rows
     ]

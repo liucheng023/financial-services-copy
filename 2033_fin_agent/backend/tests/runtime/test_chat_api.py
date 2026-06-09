@@ -278,8 +278,12 @@ def test_send_message_streams_tokens_and_persists(
     tokens = [e[1]["delta"] for e in events if e[0] == "token"]
     assert "".join(tokens) == "Hello, world!"
 
+    start_evt = next(e[1] for e in events if e[0] == "message_start")
     complete = next(e[1] for e in events if e[0] == "message_complete")
     assert complete["finish_reason"] == "stop"
+    assert start_evt["message_id"] == complete["message_id"]
+    stable_message_id = start_evt["message_id"]
+    assert stable_message_id
 
     config = captured["config"]
     assert config.base_url == MODEL_BASE_URL
@@ -291,6 +295,10 @@ def test_send_message_streams_tokens_and_persists(
     assert sent[0]["content"] == "You are a financial pitch expert."
     assert sent[-1]["role"] == "user"
     assert sent[-1]["content"] == "Hi there"
+    assert all(
+        not (m["role"] == "assistant" and m["content"] == "")
+        for m in sent
+    ), "assistant placeholder must not be sent to the LLM"
 
     persisted = api_client.fake_state["chat_messages"]
     assert len(persisted) == 2
@@ -299,6 +307,7 @@ def test_send_message_streams_tokens_and_persists(
     assert persisted[1]["role"] == "assistant"
     assert persisted[1]["content"] == "Hello, world!"
     assert persisted[1]["finish_reason"] == "stop"
+    assert str(persisted[1]["id"]) == stable_message_id
 
     assert MODEL_API_KEY not in resp.text
 
@@ -354,7 +363,21 @@ def test_send_message_llm_error_emits_sse_error(
     assert "error" in event_names
     assert event_names[-1] == "done"
 
+    start_evt = next(e[1] for e in events if e[0] == "message_start")
+    assert start_evt["message_id"], "message_start must carry assistant message id"
+
     error_evt = next(e[1] for e in events if e[0] == "error")
     assert error_evt["code"] == "timeout"
     assert error_evt["recoverable"] is False
+
+    assistant_rows = [
+        m
+        for m in api_client.fake_state["chat_messages"]
+        if m["role"] == "assistant"
+    ]
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0]["finish_reason"] == "error"
+    assert assistant_rows[0]["content"] == ""
+    assert str(assistant_rows[0]["id"]) == start_evt["message_id"]
+
     assert MODEL_API_KEY not in resp.text
