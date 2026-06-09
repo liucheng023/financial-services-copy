@@ -138,3 +138,43 @@ class ModelConfigTestResult(BaseModel):
     latency_ms: int | None = None
     error_code: str | None = None
     error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Chat sessions / messages (Task 7)
+#
+# Phase 1 sessions are anonymous (chat_sessions.user_id is NULL). Phase 2 will
+# tie sessions to authenticated users via Supabase Auth and backfill user_id.
+# ---------------------------------------------------------------------------
+
+
+class SessionCreateRequest(BaseModel):
+    agent_slug: str = Field(min_length=1)
+    title: str | None = None
+    model_config_id: str | None = None
+
+
+class SessionListItem(BaseModel):
+    id: str
+    agent_slug: str
+    agent_name: str
+    title: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class ChatMessage(BaseModel):
+    id: str
+    role: str
+    content: str | None = None
+    finish_reason: str | None = None
+    created_at: str
+
+
+class SessionDetail(SessionListItem):
+    model_config_id: str | None = None
+    messages: list[ChatMessage] = Field(default_factory=list)
+
+
+class SendMessageRequest(BaseModel):
+    content: str = Field(min_length=1)
