@@ -1,6 +1,10 @@
 import { apiClient } from "@/lib/api/client";
 import type { AgentListItem } from "@/lib/api/types";
 
+// Agent list comes from the backend and is not known at build time.
+// Render on demand so prerender doesn't try to reach the backend during `next build`.
+export const dynamic = "force-dynamic";
+
 async function getAgents(): Promise<AgentListItem[]> {
   return apiClient.GET<AgentListItem[]>("/api/agents");
 }

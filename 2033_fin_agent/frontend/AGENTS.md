@@ -12,10 +12,10 @@ This is `frontend/AGENTS.md`. Read root `../AGENTS.md` first.
   - Client state: Zustand (NOT Redux, NOT Context for app state)
   - URL state: `nuqs` or native `useSearchParams`
 - **Forms**: react-hook-form + zod validation
-- **API client**: Generated from backend OpenAPI via `openapi-typescript`
+- **API client**: Hand-written typed wrapper in `lib/api/` mirroring the backend contract (Phase 1). OpenAPI codegen is a Phase 2 follow-up.
 - **Auth (Phase 1)**: NONE for end users. No login UI, no Supabase Auth in Phase 1. The only protected endpoints are the internal operator/admin APIs (imports, MCP config, model config), which are guarded by the `X-Admin-Token` header backed by the server-side `INTERNAL_ADMIN_TOKEN` deployment secret. **`INTERNAL_ADMIN_TOKEN` is NOT a user-auth mechanism, NOT OAuth, NOT JWT, and MUST NOT be exposed to ordinary end-user clients.** Any admin/settings page that lets an operator paste this token (and optionally caches it in `localStorage` purely as a dev/MVP convenience) is an **internal operator-only tool** — it must be access-restricted, never linked from the public end-user surface (marketplace, chat), and never relied on for production end-user flows. Phase 2 replaces all of this with Supabase Auth (`@supabase/ssr`) + RBAC + RLS and removes the admin-token surface entirely.
 - **Streaming**: `fetch` + `ReadableStream` for SSE (NOT native `EventSource`; our chat endpoint is POST)
-- **Package manager**: pnpm
+- **Package manager**: npm (authoritative lockfile: `package-lock.json`). Do not introduce a `pnpm-lock.yaml` or `yarn.lock` — one lockfile only.
 - **Lint**: ESLint + Prettier
 
 ## Directory Structure
@@ -43,9 +43,8 @@ frontend/
 │   ├── chat/                    # ChatWindow, MessageList, StreamingMessage
 │   └── mcp/
 ├── lib/
-│   ├── api/                     # Typed API client (generated)
-│   ├── supabase/                # Supabase client (server + browser)
-│   ├── chat/                    # SSE chat hook
+│   ├── api/                     # Hand-written typed API client + types (Phase 1)
+│   ├── chat/                    # SSE chat parser + stream consumer
 │   └── utils.ts                 # cn(), formatters
 ├── stores/                      # Zustand stores
 │   ├── chat-store.ts
@@ -70,23 +69,20 @@ frontend/
 
 ## API Client
 
-Generated from backend `/openapi.json`:
+Phase 1: hand-written typed wrapper.
 
-```bash
-pnpm run generate-api  # Runs openapi-typescript against backend
-```
-
-Output: `lib/api/types.ts` + `lib/api/client.ts` (typed `fetch` wrapper)
+- `lib/api/types.ts` — TS mirror of the backend contract (RFC 7807 errors, agent list, session detail, SSE event union, etc.)
+- `lib/api/client.ts` — typed `fetch` wrapper (`GET` / `POST` / `POST_SSE`) reading `NEXT_PUBLIC_BACKEND_URL`. Unwraps RFC 7807 problem responses.
 
 Usage:
 
 ```typescript
 import { apiClient } from "@/lib/api/client";
 
-const agents = await apiClient.GET("/agents");  // Fully typed
+const agents = await apiClient.GET<AgentListItem[]>("/api/agents");
 ```
 
-**NEVER** hand-write API response types. **NEVER** call `fetch` directly outside `lib/api/`.
+When the backend contract changes, update `lib/api/types.ts` by hand and re-run `npm run typecheck`. **NEVER** call `fetch` directly outside `lib/api/`. **NEVER** introduce `openapi-typescript` in Phase 1 without coordinating a backend `/openapi.json` lock.
 
 ## State Management Rules
 
@@ -187,35 +183,44 @@ The chat session itself is created via `POST /api/sessions` (returns `{id, agent
 
 ## Environment Variables
 
-```bash
-NEXT_PUBLIC_BACKEND_URL=https://api.example.com   # FastAPI on Fly.io
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+Phase 1 frontend has exactly **one** required env var:
 
-# Server-only (not exposed)
-SUPABASE_SERVICE_ROLE_KEY=...  # Only if needed for server actions
+```bash
+NEXT_PUBLIC_BACKEND_URL=https://api.example.com   # FastAPI backend base URL
 ```
 
-`NEXT_PUBLIC_*` is bundled into client. NEVER put secrets there.
+That's it. No Supabase URL, no Supabase anon key, no service-role key, no admin token in the frontend `.env`.
+
+### Strict rules
+
+- **Frontend does NOT talk to Supabase directly.** All Supabase reads/writes go through the FastAPI backend. There is no `@supabase/supabase-js` or `@supabase/ssr` dependency in `package.json` in Phase 1.
+- **`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` MUST NOT be referenced** by any code in `frontend/`. They are not part of the Phase 1 frontend contract.
+- **`INTERNAL_ADMIN_TOKEN` MUST NEVER appear in the frontend bundle, frontend `.env`, or any public end-user route.** It is a backend deployment secret used for the internal operator/admin API guard only. The ordinary chat UI never sees it.
+- **Model API keys** (`LLM_API_KEY`, GLM-5 key, etc.) and **`SUPABASE_SERVICE_KEY`** are backend-only deployment secrets. They MUST NEVER be present anywhere under `frontend/`.
+
+`NEXT_PUBLIC_*` is bundled into the client. NEVER put secrets behind a `NEXT_PUBLIC_` prefix.
+
+Phase 2 (when Supabase Auth lands) will add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` strictly for the auth client — still no service-role key, still no admin token.
 
 ## Dev Loop
 
 ```bash
-pnpm install
-pnpm dev               # Next.js dev server on :3000
-pnpm lint
-pnpm typecheck         # tsc --noEmit
-pnpm test              # Vitest (Phase 1: minimal)
-pnpm generate-api      # Re-generate API types from backend
-pnpm build             # Production build (check before PR)
+npm install
+npm run dev               # Next.js dev server on :3000
+npm run lint
+npm run typecheck         # tsc --noEmit
+npm run test              # Vitest (Phase 1: SSE parser unit tests)
+npm run build             # Production build (check before PR)
 ```
+
+Use `npx` only for one-off CLIs that are not in `scripts`. Never invoke a different package manager (`pnpm` / `yarn`) — it will create a competing lockfile.
 
 ## Deployment (Vercel)
 
 - Connected to GitHub repo, auto-deploys on push to `main`
 - Preview deploys on every PR
 - Env vars set in Vercel dashboard (NOT in `.env`)
-- Build command: `pnpm build` (default)
+- Build command: `npm run build` (default)
 - Output: `.next` (default)
 - Edge runtime: NOT used in Phase 1 (Node.js runtime is fine, we don't need edge for B2B)
 
@@ -227,9 +232,10 @@ pnpm build             # Production build (check before PR)
 
 ## Verification Before "Done"
 
-- [ ] `pnpm typecheck` clean
-- [ ] `pnpm lint` clean
-- [ ] `pnpm build` succeeds
+- [ ] `npm run typecheck` clean
+- [ ] `npm run lint` clean
+- [ ] `npm run test` passes
+- [ ] `npm run build` succeeds
 - [ ] Feature works in browser against real backend
 - [ ] No layout shift / hydration mismatch in console
 - [ ] Dark mode looks correct
