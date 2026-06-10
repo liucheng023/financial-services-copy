@@ -2,7 +2,7 @@
 
 **Status**: Phase 1 MVP is end-to-end functional against a real Supabase project and a real GLM-5.1 LLM endpoint. Importer → backend APIs → backend chat SSE → frontend chat MVP have all been smoke-tested with the real stack and committed.
 
-**As of commit**: `e7b97cf` on `main`
+**As of commit**: `6b463ae` on `main`
 **Date**: 2026-06-09
 
 This document is a snapshot, not a spec. The authoritative spec lives in `openspec/changes/fin-agent-os/`. The authoritative project / backend / frontend rules live in `2033_fin_agent/AGENTS.md`, `2033_fin_agent/backend/AGENTS.md`, `2033_fin_agent/frontend/AGENTS.md`. This file just states *what is true today* and *what to consider next*.
@@ -21,10 +21,10 @@ This document is a snapshot, not a spec. The authoritative spec lives in `opensp
 - **`/health`** returns `{"status":"ok","service":"fin-agent-os-backend"}`. Intentionally does not touch Supabase or the LLM, so a downstream outage cannot mark the service unhealthy.
 - **Read-only catalog APIs** — `GET /api/agents`, `GET /api/agents/{slug}`, `GET /api/verticals`, `GET /api/verticals/{slug}`, `GET /api/mcp-servers`, `GET /api/mcp-servers/{id}`. List endpoints expose `has_api_key` (boolean); detail endpoints expose `masked_api_key` (last-4-only); plaintext `api_key` is never returned.
 - **MCP management write APIs** — `POST /api/mcp-servers`, `PUT /api/mcp-servers/{id}` — `X-Admin-Token` guarded.
-- **Model config APIs** — `GET /api/model-configs`, `GET /api/model-configs/default`, `POST /api/model-configs` (admin), `PUT /api/model-configs/{id}` (admin), `POST /api/model-configs/{id}/test-connection` (admin). `is_default = true` is exclusive (only one default). Secret policy identical to `mcp_servers`.
-- **Real default model config** — a `zhipu-coding-glm-51` config pointing at `https://open.bigmodel.cn/api/paas/v4` was created via `POST /api/model-configs` with `is_default=true` and validated via `test-connection` against the real GLM-5.1 endpoint (Gate 7A).
+- **Model config APIs** — `GET /api/model-configs`, `GET /api/model-configs/default`, `POST /api/model-configs` (admin), `PUT /api/model-configs/{id}` (admin), `POST /api/model-configs/{id}/test` (admin). `is_default = true` is exclusive (only one default). Secret policy identical to `mcp_servers`.
+- **Real default model config** — a `zhipu-coding-glm-51` config pointing at `https://open.bigmodel.cn/api/coding/paas/v4` was created via `POST /api/model-configs` with `is_default=true` and validated via `test` against the real GLM-5.1 endpoint (Gate 7A — operational verification, not a single commit).
 - **MCP adapter layer** — `mcp-use` integrated; per-session lazy initialization; graceful degradation on unreachable MCP servers. **Not yet wired into the chat execution path** (see Option A below).
-- **Chat session CRUD + SSE streaming engine** — `POST /api/sessions`, `GET /api/sessions`, `GET /api/sessions/{id}`, `POST /api/sessions/{id}/messages` (SSE). Real LLM call goes through the model-config service boundary; the engine emits `message_start → token* → message_complete → done` events; errors are emitted as `error` events with RFC 7807-style payloads. **`DELETE /api/sessions/{id}` deliberately does not exist** — Phase 1 sessions are anonymous, so a public delete would let any caller wipe any session.
+- **Chat session CRUD + SSE streaming engine** — `POST /api/sessions`, `GET /api/sessions`, `GET /api/sessions/{id}`, `POST /api/sessions/{id}/messages` (SSE). Real LLM call goes through the model-config service boundary; the engine emits `message_start → token* → message_complete → done` events. SSE `error` event payload is `{code, message, recoverable}`; HTTP pre-stream errors (non-2xx before the stream begins, e.g. session/model-config not found, validation failures) use the RFC 7807 problem-details JSON shape. **`DELETE /api/sessions/{id}` deliberately does not exist** — Phase 1 sessions are anonymous, so a public delete would let any caller wipe any session.
 - **Backend chat SSE manual smoke** against the real GLM-5.1 endpoint — session `e3a36e60-f90c-44e9-8b50-79c920f73f15`, assistant message `1a2a65a6-...`, 52 tokens emitted, `finish_reason=stop`, no API-key leak in headers / SSE payload / log lines.
 
 ### Frontend (Next.js 14 on `:3000`)
@@ -50,7 +50,7 @@ In chronological order:
 | `877bd81` | Task 5 — read-only APIs (agents / verticals / MCPs) |
 | `0e6da89` | Task 6 — MCP adapter layer |
 | `49aacad` | Task 8 — `model_configs` API + LLM test connection |
-| `08252cc` | Gate 7A — model config connection endpoint test against real GLM-5.1 |
+| `08252cc` | Task 8 follow-up — API-layer coverage for model config test endpoint |
 | `38bbcc9` | Refactor — `LLM_*` env vars made legacy optional now that `model_configs` is source of truth |
 | `f54d494` | Config contract cleanup v2 — separate runtime / importer / migration / legacy env |
 | `1da0e23` | Auth — lock down `INTERNAL_ADMIN_TOKEN` contract as Phase 1 operator-only guard |
@@ -99,7 +99,7 @@ In chronological order:
 
 - **No end-user authentication.** No login UI. No Supabase Auth. No JWT validation. No RLS.
 - **Chat endpoints are public and anonymous** — `POST /api/sessions`, `GET /api/sessions`, `GET /api/sessions/{id}`, `POST /api/sessions/{id}/messages`. Sessions have no `user_id` in Phase 1; `chat_sessions.user_id` is `UUID NULL` precisely so Phase 2 can backfill ownership without a migration break.
-- **Admin / write endpoints are guarded by `X-Admin-Token`** — `POST /api/import/*`, `POST /api/mcp-servers`, `PUT /api/mcp-servers/{id}`, `POST /api/model-configs`, `PUT /api/model-configs/{id}`, `POST /api/model-configs/{id}/test-connection`. The header is compared against the server-side `INTERNAL_ADMIN_TOKEN` env var via `hmac.compare_digest`.
+- **Admin / write endpoints are guarded by `X-Admin-Token`** — `POST /api/import/*`, `POST /api/mcp-servers`, `PUT /api/mcp-servers/{id}`, `POST /api/model-configs`, `PUT /api/model-configs/{id}`, `POST /api/model-configs/{id}/test`. The header is compared against the server-side `INTERNAL_ADMIN_TOKEN` env var via `hmac.compare_digest`.
 - **`INTERNAL_ADMIN_TOKEN` contract** (locked down in `1da0e23`):
   - Phase 1 only. Deleted in Phase 2.
   - Internal operator/admin API guard. Not a user-auth mechanism. Not OAuth, not JWT, not RBAC.
@@ -117,7 +117,7 @@ In chronological order:
 | Backend tests | `pytest` under `backend/` (covers importers, read APIs, model configs, chat sessions + SSE engine) | green at each completed task commit; live `--apply` post-run row counts in Supabase match `import_all.py` reported counts exactly |
 | Backend lint | `ruff check backend/` | clean |
 | OpenSpec | `openspec validate fin-agent-os --strict` | passes |
-| Gate 7A | `POST /api/model-configs/{id}/test-connection` against the real GLM-5.1 endpoint (`https://open.bigmodel.cn/api/paas/v4`) | 200 OK, real completion returned, no secret leak (`08252cc`) |
+| Gate 7A | `POST /api/model-configs/{id}/test` against the real GLM-5.1 endpoint (`https://open.bigmodel.cn/api/coding/paas/v4`) — manual smoke / operational verification, not bound to a single commit | 200 OK, real completion returned, no secret leak |
 | Real Chat SSE manual smoke | direct `POST /api/sessions/{id}/messages` against backend on `:8001` with real GLM-5.1 | session `e3a36e60-...`, 52 tokens, `finish_reason=stop`, no API-key leak |
 | Frontend lint | `npm run lint` | clean |
 | Frontend typecheck | `npm run typecheck` (`tsc --noEmit` strict) | clean |
