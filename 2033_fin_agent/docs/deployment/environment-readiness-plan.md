@@ -1,7 +1,7 @@
 # FinAgentOS — Environment Readiness Plan
 
 **Status**: planning only. No deployment is executed by this document.
-**As of commit**: `02adb0a` on `main`
+**As of**: ADR 0001 / commit `2bc0aad` on `main`
 **Scope**: define the *next* environment we will create (testing), the
 **CI/CD orchestration** that creates it (GitHub Actions), the target
 topology testing must mirror (production), and the explicit policy for
@@ -27,9 +27,10 @@ not manual)*, and *what must be true before we ship either of them*.
   *development* environment, not a deployable target. The developer
   workstation's job is **local development, local testing, and `git
   push` only** — it does **not** run day-to-day deploys to testing or
-  production. Ad-hoc `fly deploy` / `vercel deploy` from a laptop is
-  reserved for one-time bootstrap or break-glass recovery, not for
-  routine deployment (see §4).
+  production. Routine `vercel deploy` does **not** run on a developer
+  workstation; it runs inside GitHub Actions. Ad-hoc `fly deploy` from
+  a laptop is reserved for one-time bootstrap or break-glass recovery,
+  not for routine deployment (see §4).
 - **testing** — the next environment we will create. **The only
   day-to-day deploy control plane for testing is GitHub Actions.**
   Backend is deployed by GitHub Actions to Fly.io (region `nrt`);
@@ -64,7 +65,7 @@ not manual)*, and *what must be true before we ship either of them*.
 
 | environment | purpose | frontend | backend | data source | runtime secrets | CI/CD secrets | CORS | users | deployment trigger | data source isolation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| development / local | day-to-day dev, fast feedback, real-stack smoke | local Next.js (`npm run dev`, `:3000`) | local FastAPI (`uvicorn --reload`) or local Docker (`python:3.11-slim`, port `:8001` if `:8000` is taken) | **may** share the same non-production Supabase + object storage + `model_configs` as testing | `backend/.env` only (gitignored); never committed | none | `CORS_ORIGINS=http://localhost:3000` (default) | developers only | **local development, local testing, and `git push` only** — no day-to-day deploy responsibility; ad-hoc `fly deploy` / `vercel deploy` from a laptop is reserved for one-time bootstrap or break-glass | **not isolated from testing in Phase 1** — see §5 |
+| development / local | day-to-day dev, fast feedback, real-stack smoke | local Next.js (`npm run dev`, `:3000`) | local FastAPI (`uvicorn --reload`) or local Docker (`python:3.11-slim`, port `:8001` if `:8000` is taken) | **may** share the same non-production Supabase + object storage + `model_configs` as testing | `backend/.env` only (gitignored); never committed | none | `CORS_ORIGINS=http://localhost:3000` (default) | developers only | **local development, local testing, and `git push` only** — no day-to-day deploy responsibility; routine `vercel deploy` runs inside GitHub Actions, not locally; ad-hoc `fly deploy` from a laptop is reserved for one-time bootstrap or break-glass | **not isolated from testing in Phase 1** — see §5 |
 | testing | internal QA against deployed stack; SSE / cold-start / CORS smoke under real network | Vercel project `fin-agent-os-frontend-testing`, deployment of `main` triggered **only** by GitHub Actions | Fly.io app `fin-agent-os-backend-testing`, region `nrt`, single machine acceptable, deployment of `main` triggered **only** by GitHub Actions | **may** share the same non-production Supabase as development/local initially | **Fly.io secrets only** (backend runtime); Vercel project env vars are limited to `NEXT_PUBLIC_BACKEND_URL` | **GitHub Actions repository secrets**: `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_TESTING` — **deploy credentials only**, not app runtime secrets | `CORS_ORIGINS` = the testing Vercel URL, plus `http://localhost:3000` only if local→testing-backend smoke is needed | internal QA only; no external users | **GitHub Actions on push to `main`** (sole day-to-day control plane) — backend CI → frontend CI → Fly deploy → Vercel deploy → testing smoke. Vercel / Fly dashboards are used only for one-time bootstrap, status viewing, and runtime secret config. | **not isolated from development/local in Phase 1** — see §5 |
 | production | live B2B traffic | Vercel project `fin-agent-os-frontend`, production deployment | Fly.io app `fin-agent-os-backend`, region `nrt` (add regions later per `backend/AGENTS.md`) | **decision required before launch** — independent production Supabase strongly preferred; see §9 | Fly.io secrets (backend) + Vercel env vars (frontend, public only); rotated independently of testing | production-scoped `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_PRODUCTION` — kept in a separate GitHub Environment with required reviewers | `CORS_ORIGINS` = production frontend URL only; no `localhost`, no `*` | real B2B users | **future protected GitHub Environment** (manual approval) on tag `vX.Y.Z` or `production` branch — **not configured now** | **MUST** be isolated from non-production by launch (see §9) |
 | staging / pre-production | **deferred** — release-candidate validation before production | not provisioned | not provisioned | not provisioned | not provisioned | not provisioned | n/a | n/a | n/a | n/a |
@@ -161,9 +162,12 @@ restated here so the deployment plan cannot drift from them):
 ## 4. CI/CD Strategy (Testing — GitHub Actions)
 
 Testing is created and updated **only by GitHub Actions**, never by
-ad-hoc `fly deploy` or Vercel CLI from a developer laptop. This is the
-forcing function that keeps testing reproducible and keeps runtime
-secrets out of developer machines and out of the CI/CD secret store.
+ad-hoc `fly deploy` from a developer laptop and never by `vercel
+deploy` from a developer laptop. The Vercel CLI runs **inside the
+GitHub Actions runner** (installed and invoked by the deploy job), not
+on the developer's workstation. This is the forcing function that
+keeps testing reproducible and keeps runtime secrets out of developer
+machines and out of the CI/CD secret store.
 
 ### Control plane & roles (who does what)
 
@@ -177,10 +181,13 @@ secrets out of developer machines and out of the CI/CD secret store.
   `fly secrets set` (out-of-band, never via CI), view machine status
   and logs, and perform break-glass recovery. **Not** a routine deploy
   trigger.
-- **Vercel dashboard / `vercel` CLI** — one-time use only. Used to
-  create the `fin-agent-os-frontend-testing` project, link it to the
-  repo, configure the only public env var (`NEXT_PUBLIC_BACKEND_URL`),
-  and view deployment status. **Not** a routine deploy trigger.
+- **Vercel dashboard / project settings** — one-time use only. Used
+  to create the `fin-agent-os-frontend-testing` project, set the
+  repo / root directory link, configure the only public env var
+  (`NEXT_PUBLIC_BACKEND_URL`), and view deployment status.
+  Operators do **not** need to install or run the Vercel CLI
+  locally — routine `vercel deploy` runs inside the GitHub Actions
+  runner. The dashboard is **not** a routine deploy trigger.
 - **Developer workstation** — local development, local testing, and
   `git push` to `main`. Pushing is what kicks off the CI/CD pipeline;
   the workstation does not deploy directly.
@@ -547,10 +554,10 @@ an explicit go-ahead.
   frontend JS bundle, a browser Network response, or any committed
   file.
 - A routine deploy to testing occurred outside GitHub Actions (e.g., a
-  developer ran `fly deploy` or `vercel deploy` from a laptop without
-  it being a documented one-time bootstrap or break-glass action). GitHub
-  Actions is the sole day-to-day control plane (§4); any other path is
-  a stop condition.
+  developer ran `fly deploy` from a laptop, or ran `vercel deploy`
+  locally, without it being a documented one-time bootstrap or
+  break-glass action). GitHub Actions is the sole day-to-day control
+  plane (§4); any other path is a stop condition.
 - A runtime secret is found in GitHub Actions secrets (rule violation
   of §6 -- runtime secrets must live in Fly, not in CI).
 - CORS blocks the frontend from calling the backend (browser console

@@ -35,7 +35,9 @@ deploys*. Three plausible options were considered.
 **Use GitHub Actions as the single control plane for testing CI/CD.**
 GitHub Actions runs all CI (backend and frontend), then deploys the
 backend to Fly.io via `flyctl` and the frontend to Vercel via the
-Vercel CLI, then runs the post-deploy smoke checklist
+Vercel CLI -- both installed and invoked inside the GitHub Actions
+runner, never on a developer workstation. It then runs the
+post-deploy smoke checklist
 (`docs/deployment/environment-readiness-plan.md` §8) as a workflow
 job.
 
@@ -102,9 +104,10 @@ GitHub Actions.
 ### Option C -- GitHub Actions to both Fly and Vercel  *(selected)*
 
 GitHub Actions runs CI for both sides, then explicitly invokes
-`flyctl deploy` and `vercel deploy --prod` in jobs whose ordering is
-controlled by the workflow, then runs a smoke job that depends on
-both deploys completing.
+`flyctl deploy` and `vercel deploy --prod` from inside the GitHub
+Actions runner (CLIs installed by the workflow, not on a developer
+workstation) in jobs whose ordering is controlled by the workflow,
+then runs a smoke job that depends on both deploys completing.
 
 - **Pros**:
   - **Single control plane.** One place to look at status, one
@@ -198,9 +201,9 @@ both deploys completing.
 
 This ADR should be revisited if any of the following becomes true:
 
-- `vercel deploy` (CLI) inside GitHub Actions proves unreliable
-  (consistent flakiness, broken `--prod` semantics, deploy failures
-  that the Vercel Integration would have handled).
+- `vercel deploy` (CLI) executed inside the GitHub Actions runner
+  proves unreliable (consistent flakiness, broken `--prod` semantics,
+  deploy failures that the Vercel Integration would have handled).
 - Vercel or Fly ship official GitHub-integration features that
   natively support: a unified post-deploy smoke gate, required-
   reviewer approval, and explicit cross-platform deploy ordering.

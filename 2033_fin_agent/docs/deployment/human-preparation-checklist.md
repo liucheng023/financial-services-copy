@@ -81,24 +81,32 @@ after bootstrap. Routine deploys come from GitHub Actions only.
 
 ## 3. Vercel testing project (frontend)
 
-Done **once** by the operator via Vercel dashboard, before the first
-CI/CD run.
+Done **once** by the operator via the **Vercel dashboard / project
+settings** (web UI), before the first CI/CD run. The operator does
+**not** need to install or run the Vercel CLI on their workstation --
+the CLI is installed and invoked inside the GitHub Actions runner by
+the deploy job.
 
 - [ ] Create the Vercel project named
   `fin-agent-os-frontend-testing` (or your chosen equivalent).
-- [ ] Link the project to the GitHub repo, but **do NOT enable
-  Vercel's GitHub Integration auto-deploy on `main`**. Routine
-  deploys come from GitHub Actions only; auto-deploy would race the
-  workflow and bypass the unified release gate (ADR 0001).
+- [ ] Link the project to the GitHub repo, set the **root directory**
+  to `2033_fin_agent/frontend/` (this is a monorepo), but **do NOT
+  enable Vercel's GitHub Integration auto-deploy on `main`**.
+  Routine deploys come from GitHub Actions only; auto-deploy would
+  race the workflow and bypass the unified release gate (ADR 0001).
 - [ ] In Vercel project Settings -> Environment Variables, set:
   - [ ] `NEXT_PUBLIC_BACKEND_URL` -- the testing Fly backend URL
     (e.g., `https://fin-agent-os-backend-testing.fly.dev`). This
     is the **only** env var the Vercel testing project gets in
     Phase 1.
 - [ ] Confirm the project's `VERCEL_ORG_ID` and
-  `VERCEL_PROJECT_ID` values, and store them as
-  `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID_TESTING` in GitHub Actions
-  secrets (see step 1).
+  `VERCEL_PROJECT_ID` values from the dashboard (Project Settings ->
+  General), and store them as `VERCEL_ORG_ID` and
+  `VERCEL_PROJECT_ID_TESTING` in GitHub Actions secrets (see
+  step 1).
+- [ ] Use the Vercel dashboard to view deployment status after each
+  GitHub Actions run. The dashboard is **not** a routine deploy
+  trigger; it is for visibility and break-glass only.
 
 What MUST NOT be in Vercel env vars (Phase 1):
 
