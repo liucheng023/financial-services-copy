@@ -20,15 +20,27 @@ not manual)*, and *what must be true before we ship either of them*.
 
 ## 1. Environment Strategy Summary
 
-- **development / local** — already exists. Validated end-to-end against
-  a real Supabase project and the real GLM-5.1 endpoint
+- **development / local** — already exists. Validated end-to-end
+  against a real Supabase project and the real GLM-5.1 endpoint
   (`https://open.bigmodel.cn/api/coding/paas/v4`). Captured in
   `docs/handoffs/phase-1-current-acceptance.md`. This is the
-  *development* environment, not a deployable target.
-- **testing** — the next environment we will create. **Deployed by
-  GitHub Actions, not manually.** Frontend on Vercel, backend on Fly.io
-  (region `nrt`). Used for internal QA against a deployed stack before
-  any external user sees the product.
+  *development* environment, not a deployable target. The developer
+  workstation's job is **local development, local testing, and `git
+  push` only** — it does **not** run day-to-day deploys to testing or
+  production. Ad-hoc `fly deploy` / `vercel deploy` from a laptop is
+  reserved for one-time bootstrap or break-glass recovery, not for
+  routine deployment (see §4).
+- **testing** — the next environment we will create. **The only
+  day-to-day deploy control plane for testing is GitHub Actions.**
+  Backend is deployed by GitHub Actions to Fly.io (region `nrt`);
+  frontend is deployed by GitHub Actions to Vercel. The Vercel and
+  Fly.io dashboards are used **only** for one-time app/project
+  creation, viewing platform status, and setting required runtime
+  env/secrets — they are **not** a deploy trigger for routine work.
+  Used for internal QA against a deployed stack before any external
+  user sees the product. See ADR
+  `docs/architecture/decisions/0001-testing-cicd-control-plane.md`
+  for the rationale.
 - **production** — created **only after testing passes**. Topology is
   identical to testing; configuration is isolated. Production CI/CD
   reuses the testing workflow shape behind a protected GitHub
@@ -52,8 +64,8 @@ not manual)*, and *what must be true before we ship either of them*.
 
 | environment | purpose | frontend | backend | data source | runtime secrets | CI/CD secrets | CORS | users | deployment trigger | data source isolation |
 |---|---|---|---|---|---|---|---|---|---|---|
-| development / local | day-to-day dev, fast feedback, real-stack smoke | local Next.js (`npm run dev`, `:3000`) | local FastAPI (`uvicorn --reload`) or local Docker (`python:3.11-slim`, port `:8001` if `:8000` is taken) | **may** share the same non-production Supabase + object storage + `model_configs` as testing | `backend/.env` only (gitignored); never committed | none | `CORS_ORIGINS=http://localhost:3000` (default) | developers only | **manual** local commands (`uvicorn` / `docker run`) | **not isolated from testing in Phase 1** — see §5 |
-| testing | internal QA against deployed stack; SSE / cold-start / CORS smoke under real network | Vercel project `fin-agent-os-frontend-testing`, deployment of `main` triggered by GitHub Actions | Fly.io app `fin-agent-os-backend-testing`, region `nrt`, single machine acceptable | **may** share the same non-production Supabase as development/local initially | **Fly.io secrets only** (backend runtime); Vercel project env vars are limited to `NEXT_PUBLIC_BACKEND_URL` | **GitHub Actions repository secrets**: `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_TESTING` — **deploy credentials only**, not app runtime secrets | `CORS_ORIGINS` = the testing Vercel URL, plus `http://localhost:3000` only if local→testing-backend smoke is needed | internal QA only; no external users | **GitHub Actions on push to `main`** — backend CI → frontend CI → Fly deploy → Vercel deploy → testing smoke | **not isolated from development/local in Phase 1** — see §5 |
+| development / local | day-to-day dev, fast feedback, real-stack smoke | local Next.js (`npm run dev`, `:3000`) | local FastAPI (`uvicorn --reload`) or local Docker (`python:3.11-slim`, port `:8001` if `:8000` is taken) | **may** share the same non-production Supabase + object storage + `model_configs` as testing | `backend/.env` only (gitignored); never committed | none | `CORS_ORIGINS=http://localhost:3000` (default) | developers only | **local development, local testing, and `git push` only** — no day-to-day deploy responsibility; ad-hoc `fly deploy` / `vercel deploy` from a laptop is reserved for one-time bootstrap or break-glass | **not isolated from testing in Phase 1** — see §5 |
+| testing | internal QA against deployed stack; SSE / cold-start / CORS smoke under real network | Vercel project `fin-agent-os-frontend-testing`, deployment of `main` triggered **only** by GitHub Actions | Fly.io app `fin-agent-os-backend-testing`, region `nrt`, single machine acceptable, deployment of `main` triggered **only** by GitHub Actions | **may** share the same non-production Supabase as development/local initially | **Fly.io secrets only** (backend runtime); Vercel project env vars are limited to `NEXT_PUBLIC_BACKEND_URL` | **GitHub Actions repository secrets**: `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_TESTING` — **deploy credentials only**, not app runtime secrets | `CORS_ORIGINS` = the testing Vercel URL, plus `http://localhost:3000` only if local→testing-backend smoke is needed | internal QA only; no external users | **GitHub Actions on push to `main`** (sole day-to-day control plane) — backend CI → frontend CI → Fly deploy → Vercel deploy → testing smoke. Vercel / Fly dashboards are used only for one-time bootstrap, status viewing, and runtime secret config. | **not isolated from development/local in Phase 1** — see §5 |
 | production | live B2B traffic | Vercel project `fin-agent-os-frontend`, production deployment | Fly.io app `fin-agent-os-backend`, region `nrt` (add regions later per `backend/AGENTS.md`) | **decision required before launch** — independent production Supabase strongly preferred; see §9 | Fly.io secrets (backend) + Vercel env vars (frontend, public only); rotated independently of testing | production-scoped `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_PRODUCTION` — kept in a separate GitHub Environment with required reviewers | `CORS_ORIGINS` = production frontend URL only; no `localhost`, no `*` | real B2B users | **future protected GitHub Environment** (manual approval) on tag `vX.Y.Z` or `production` branch — **not configured now** | **MUST** be isolated from non-production by launch (see §9) |
 | staging / pre-production | **deferred** — release-candidate validation before production | not provisioned | not provisioned | not provisioned | not provisioned | not provisioned | n/a | n/a | n/a | n/a |
 
@@ -152,6 +164,32 @@ Testing is created and updated **only by GitHub Actions**, never by
 ad-hoc `fly deploy` or Vercel CLI from a developer laptop. This is the
 forcing function that keeps testing reproducible and keeps runtime
 secrets out of developer machines and out of the CI/CD secret store.
+
+### Control plane & roles (who does what)
+
+- **GitHub Actions** — the sole day-to-day deploy control plane for
+  testing. Runs CI, deploys backend to Fly.io, deploys frontend to
+  Vercel, runs the post-deploy smoke. Holds **deploy credentials
+  only** (`FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID_TESTING`).
+- **Fly.io dashboard / `flyctl`** — one-time use only. Used to create
+  the `fin-agent-os-backend-testing` app, set runtime secrets via
+  `fly secrets set` (out-of-band, never via CI), view machine status
+  and logs, and perform break-glass recovery. **Not** a routine deploy
+  trigger.
+- **Vercel dashboard / `vercel` CLI** — one-time use only. Used to
+  create the `fin-agent-os-frontend-testing` project, link it to the
+  repo, configure the only public env var (`NEXT_PUBLIC_BACKEND_URL`),
+  and view deployment status. **Not** a routine deploy trigger.
+- **Developer workstation** — local development, local testing, and
+  `git push` to `main`. Pushing is what kicks off the CI/CD pipeline;
+  the workstation does not deploy directly.
+- **Vercel ↔ GitHub Integration / Fly ↔ GitHub Integration** —
+  **fallback, not selected.** See ADR
+  `docs/architecture/decisions/0001-testing-cicd-control-plane.md`
+  for why GitHub Actions to both platforms was chosen over either
+  vendor-managed integration. If we ever switch to a vendor
+  integration, the ADR's revisit triggers govern the decision.
 
 ### Pipeline shape (push to `main`)
 
@@ -508,6 +546,11 @@ an explicit go-ahead.
   `api_key`) appears in: Fly logs, Vercel logs, GitHub Actions logs,
   frontend JS bundle, a browser Network response, or any committed
   file.
+- A routine deploy to testing occurred outside GitHub Actions (e.g., a
+  developer ran `fly deploy` or `vercel deploy` from a laptop without
+  it being a documented one-time bootstrap or break-glass action). GitHub
+  Actions is the sole day-to-day control plane (§4); any other path is
+  a stop condition.
 - A runtime secret is found in GitHub Actions secrets (rule violation
   of §6 -- runtime secrets must live in Fly, not in CI).
 - CORS blocks the frontend from calling the backend (browser console
@@ -574,6 +617,14 @@ vars, or Supabase row) and confirms back with a yes/no.
    the QA loop.
 9. **Acceptance of the shared-data-source risks in §5** as the Phase 1
    working assumption until production is created.
+10. **Acceptance of GitHub Actions as the sole day-to-day deploy
+    control plane** for testing (per §4 and ADR 0001), with Vercel /
+    Fly dashboards reserved for one-time bootstrap and break-glass
+    only.
+
+A separate, operator-facing checklist with the concrete preparation
+steps lives at
+`docs/deployment/human-preparation-checklist.md`.
 
 No deploy action and no GitHub Actions workflow file is created until
-items 1-9 are answered.
+items 1-10 are answered.
